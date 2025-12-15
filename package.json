@@ -13,7 +13,8 @@
     "react": "latest",
     "react-dom": "latest",
     "firebase": "latest",
-    "@google/generative-ai": "latest"
+    "@google/generative-ai": "latest",
+    "@greatsumini/react-facebook-login": "latest"
   },
   "devDependencies": {
     "typescript": "latest",
