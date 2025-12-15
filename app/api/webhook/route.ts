@@ -6,7 +6,6 @@ import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 // --- CONFIG ---
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
-// Lưu ý: Đưa vào biến môi trường khi chạy thật
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; 
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -32,13 +31,8 @@ async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
     
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      // Logic: Đẩy Bot vào trước, User vào sau để khi unshift sẽ ra thứ tự: User -> Bot -> User...
-      if (data.botReply) {
-        history.unshift({ role: "model", parts: [{ text: data.botReply }] });
-      }
-      if (data.userMessage) {
-        history.unshift({ role: "user", parts: [{ text: data.userMessage }] });
-      }
+      if (data.botReply) history.unshift({ role: "model", parts: [{ text: data.botReply }] });
+      if (data.userMessage) history.unshift({ role: "user", parts: [{ text: data.userMessage }] });
     });
     
     return history;
@@ -62,15 +56,15 @@ async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: str
   }
 }
 
-// --- 3. GEMINI SDK (CÓ BỘ LỌC & FALLBACK) ---
+// --- 3. GEMINI SDK (UPDATE MODEL LIST) ---
 async function askGemini(message: string, history: ChatMessage[]): Promise<string> {
-  // BỘ LỌC: Đảm bảo tin đầu tiên KHÔNG PHẢI là model
+  // BỘ LỌC
   while (history.length > 0 && history[0].role === "model") {
     history.shift(); 
   }
 
-  // Danh sách model ưu tiên (Tier 1)
-  const models = ["gemini-1.5-flash-001", "gemini-1.5-pro-001", "gemini-pro"];
+  // 🔴 DANH SÁCH MODEL MỚI (Dùng Alias chuẩn)
+  const models = ["gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-pro"];
 
   for (const modelName of models) {
     try {
@@ -88,18 +82,14 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
     } catch (error: any) {
       console.warn(`⚠️ Model ${modelName} lỗi:`, error.message);
       
-      // LOGIC FIX LỖI SCOPE TẠI ĐÂY:
-      // Nếu lỗi do lịch sử chat (role 'user'...), ta khởi tạo lại model mới để reset
+      // FIX LỖI SCOPE & RETRY
       if (error.message.includes("role 'user'") || error.message.includes("content")) {
          try {
-            // Khởi tạo lại model trong catch block để tránh lỗi "model is undefined"
             const fallbackModel = genAI.getGenerativeModel({ model: modelName });
-            const chatReset = fallbackModel.startChat({ history: [] }); // Reset history về rỗng
+            const chatReset = fallbackModel.startChat({ history: [] }); 
             const resReset = await chatReset.sendMessage(message);
             return resReset.response.text();
-         } catch(e) {
-             // Nếu reset vẫn lỗi thì bỏ qua, thử model tiếp theo
-         }
+         } catch(e) {}
       }
     }
   }
@@ -112,7 +102,6 @@ async function sendReplyToFacebook(recipientId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
-  // Typing indicator
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -130,7 +119,6 @@ async function sendReplyToFacebook(recipientId: string, text: string) {
   } catch (error) { console.error("🔥 Lỗi FB:", error); }
 }
 
-// --- HANDLERS ---
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === VERIFY_TOKEN) {
@@ -161,7 +149,6 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ status: 'UNKNOWN' }, { status: 404 });
   } catch (error) {
-    console.error(error);
     return NextResponse.json({ error: 'Error' }, { status: 500 });
   }
 }
