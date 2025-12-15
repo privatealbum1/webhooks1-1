@@ -38,7 +38,7 @@ async function askGemini(message) {
   try {
     // Theo tài liệu Google: Dùng model alias chuẩn "gemini-1.5-flash"
     // SDK mới nhất sẽ tự động map sang version phù hợp
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await model.generateContent(message);
     const response = await result.response;
