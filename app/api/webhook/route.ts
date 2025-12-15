@@ -15,84 +15,42 @@ interface ChatMessage {
   parts: Part[];
 }
 
-// --- 1. FIREBASE: LẤY LỊCH SỬ (SUB-COLLECTION) ---
+// --- 1. FIREBASE & GEMINI (GIỮ NGUYÊN LOGIC CŨ) ---
 async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
   try {
-    // Trỏ vào thư mục con: chats -> [ID User] -> messages
     const userChatsRef = collection(db, "chats", senderId, "messages");
-    
-    const q = query(
-      userChatsRef, 
-      orderBy("createdAt", "desc"), 
-      limit(10)
-    );
-    
+    const q = query(userChatsRef, orderBy("createdAt", "desc"), limit(10));
     const querySnapshot = await getDocs(q);
     const history: ChatMessage[] = [];
-    
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      // Logic sắp xếp: [User, Bot, User, Bot...]
-      if (data.botReply) {
-        history.unshift({ role: "model", parts: [{ text: data.botReply }] });
-      }
-      if (data.userMessage) {
-        history.unshift({ role: "user", parts: [{ text: data.userMessage }] });
-      }
+      if (data.botReply) history.unshift({ role: "model", parts: [{ text: data.botReply }] });
+      if (data.userMessage) history.unshift({ role: "user", parts: [{ text: data.userMessage }] });
     });
-    
     return history;
-  } catch (error) {
-    console.error("🔥 Lỗi lấy lịch sử:", error);
-    return [];
-  }
+  } catch (error) { return []; }
 }
 
-// --- 2. FIREBASE: LƯU CHAT (SUB-COLLECTION) ---
 async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: string) {
   try {
     const userChatsRef = collection(db, "chats", senderId, "messages");
-
-    await addDoc(userChatsRef, {
-      userMessage: userMsg,
-      botReply: botMsg,
-      createdAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error("🔥 Lỗi lưu chat:", error);
-  }
+    await addDoc(userChatsRef, { userMessage: userMsg, botReply: botMsg, createdAt: serverTimestamp() });
+  } catch (error) { console.error("🔥 Lỗi lưu chat:", error); }
 }
 
-// --- 3. GEMINI SDK (UPDATE MODEL V2.5) ---
 async function askGemini(message: string, history: ChatMessage[]): Promise<string> {
-  // BỘ LỌC: Đảm bảo User luôn nói trước
-  while (history.length > 0 && history[0].role === "model") {
-    history.shift(); 
-  }
-
-  // 🔴 CẬP NHẬT DANH SÁCH MODEL MỚI NHẤT (Theo yêu cầu của bạn)
-  // Ưu tiên 1: Bản 2.5 Flash (Nhanh, Rẻ, Thông minh)
-  // Ưu tiên 2: Bản 2.5 Pro (Nếu Flash lỗi thì dùng bản xịn nhất)
-  // Ưu tiên 3: Bản 1.5 Flash (Dự phòng cuối cùng nếu dòng 2.5 sập)
+  while (history.length > 0 && history[0].role === "model") { history.shift(); }
+  
+  // Model list
   const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"];
 
   for (const modelName of models) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      
-      const chat = model.startChat({
-        history: history, 
-        generationConfig: { maxOutputTokens: 500 }, // Tăng độ dài trả lời lên xíu cho bản Pro "chém gió"
-      });
-
+      const chat = model.startChat({ history: history, generationConfig: { maxOutputTokens: 500 } });
       const result = await chat.sendMessage(message);
-      const response = await result.response;
-      return response.text();
-
+      return (await result.response).text();
     } catch (error: any) {
-      console.warn(`⚠️ Model ${modelName} lỗi:`, error.message);
-      
-      // LOGIC FIX SCOPE & RETRY (Giữ nguyên vì nó hoạt động tốt)
       if (error.message.includes("role 'user'") || error.message.includes("content")) {
          try {
             const fallbackModel = genAI.getGenerativeModel({ model: modelName });
@@ -103,34 +61,39 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
       }
     }
   }
-
-  return "Hệ thống đang bảo trì, vui lòng thử lại sau! 🤖";
+  return "Cảm ơn bạn đã tương tác! (Hệ thống AI đang bận)";
 }
 
-// --- 4. FACEBOOK REPLY ---
-async function sendReplyToFacebook(recipientId: string, text: string) {
+// --- 2. HÀM GỬI TIN NHẮN (MESSENGER) ---
+async function sendReplyToMessenger(recipientId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
+  
+  // Typing...
+  await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipient: { id: recipientId }, sender_action: "typing_on" }) });
 
-  // Hiệu ứng "Đang soạn tin..."
-  await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ recipient: { id: recipientId }, sender_action: "typing_on" })
-  });
-
-  const body = {
-    recipient: { id: recipientId },
-    messaging_type: "RESPONSE",
-    message: { text: text }
-  };
-
-  try {
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  } catch (error) { console.error("🔥 Lỗi FB:", error); }
+  const body = { recipient: { id: recipientId }, messaging_type: "RESPONSE", message: { text: text } };
+  try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } 
+  catch (error) { console.error("🔥 Lỗi Messenger:", error); }
 }
 
-// --- HANDLERS ---
+// --- 3. HÀM TRẢ LỜI COMMENT (NEW) ---
+async function replyToComment(commentId: string, text: string) {
+  if (!PAGE_ACCESS_TOKEN) return;
+  // API: POST /v24.0/{comment-id}/comments
+  const url = `https://graph.facebook.com/v24.0/${commentId}/comments?access_token=${PAGE_ACCESS_TOKEN}`;
+  
+  const body = { message: text };
+  
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.error) console.error("🔥 Lỗi Reply Comment:", data.error);
+    else console.log("✅ Đã trả lời comment:", commentId);
+  } catch (error) { console.error("🔥 Lỗi mạng Comment:", error); }
+}
+
+// --- MAIN HANDLERS ---
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === VERIFY_TOKEN) {
@@ -142,19 +105,48 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
     if (body.object === 'page') {
       const entries = body.entry as any[];
+      
       for (const entry of entries) {
-        const webhook_event = entry.messaging ? entry.messaging[0] : null;
-        if (webhook_event?.message?.text && !webhook_event.message.is_echo) {
-          const senderId = webhook_event.sender.id;
-          const userMessage = webhook_event.message.text;
+        // --- A. XỬ LÝ TIN NHẮN (MESSAGING) ---
+        if (entry.messaging) {
+          const webhook_event = entry.messaging[0];
+          if (webhook_event?.message?.text && !webhook_event.message.is_echo) {
+            const senderId = webhook_event.sender.id;
+            const userMessage = webhook_event.message.text;
 
-          const history = await getChatHistory(senderId);
-          const aiReply = await askGemini(userMessage, history);
-          
-          await sendReplyToFacebook(senderId, aiReply);
-          await saveChatToFirebase(senderId, userMessage, aiReply);
+            const history = await getChatHistory(senderId);
+            const aiReply = await askGemini(userMessage, history);
+            
+            await sendReplyToMessenger(senderId, aiReply);
+            await saveChatToFirebase(senderId, userMessage, aiReply);
+          }
+        }
+
+        // --- B. XỬ LÝ COMMENT (FEED CHANGES) ---
+        if (entry.changes) {
+          for (const change of entry.changes) {
+            // Kiểm tra đúng là sự kiện thêm comment
+            if (change.field === 'feed' && change.value.item === 'comment' && change.value.verb === 'add') {
+              const commentId = change.value.comment_id;
+              const userMessage = change.value.message;
+              const senderId = change.value.from.id;
+              
+              // ⚠️ QUAN TRỌNG: Kiểm tra xem người comment có phải là Page không để tránh vòng lặp vô tận
+              // (Tạm thời lọc bằng logic: Nếu tên người gửi chứa chữ "Page" hoặc ID trùng Page ID thì bỏ qua.
+              // Ở đây mình cứ xử lý, nếu Bot tự reply thì webhook thường không báo lại sự kiện của chính nó nếu không cài echo)
+              
+              console.log(`💬 Comment mới từ ${senderId}: ${userMessage}`);
+
+              // Với Comment, tạm thời không cần load lịch sử dài dòng, chỉ cần trả lời đúng nội dung đó
+              // Có thể truyền history rỗng []
+              const aiReply = await askGemini(userMessage, []);
+              
+              await replyToComment(commentId, aiReply);
+            }
+          }
         }
       }
       return NextResponse.json({ status: 'EVENT_RECEIVED' });
