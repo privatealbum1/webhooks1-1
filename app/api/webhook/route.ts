@@ -7,7 +7,7 @@ import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 // Lưu ý: Đưa vào biến môi trường khi chạy thật
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; 
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
@@ -16,7 +16,7 @@ interface ChatMessage {
   parts: Part[];
 }
 
-// --- 1. FIREBASE: LẤY LỊCH SỬ (ĐÃ FIX LOGIC SẮP XẾP) ---
+// --- 1. FIREBASE: LẤY LỊCH SỬ ---
 async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
   try {
     const chatsRef = collection(db, "chats");
@@ -32,8 +32,7 @@ async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
     
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      // 🔴 SỬA QUAN TRỌNG: Phải unshift Bot trước, User sau
-      // Để khi vào mảng nó sẽ thành: [User, Bot, User, Bot...]
+      // Logic: Đẩy Bot vào trước, User vào sau để khi unshift sẽ ra thứ tự: User -> Bot -> User...
       if (data.botReply) {
         history.unshift({ role: "model", parts: [{ text: data.botReply }] });
       }
@@ -63,15 +62,14 @@ async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: str
   }
 }
 
-// --- 3. GEMINI SDK (CÓ BỘ LỌC AN TOÀN) ---
+// --- 3. GEMINI SDK (CÓ BỘ LỌC & FALLBACK) ---
 async function askGemini(message: string, history: ChatMessage[]): Promise<string> {
-  // 🔴 BỘ LỌC (SANITIZER): Đảm bảo tin đầu tiên KHÔNG PHẢI là model
-  // Nếu tin đầu là Model, xóa nó đi để tránh lỗi "First content should be user"
+  // BỘ LỌC: Đảm bảo tin đầu tiên KHÔNG PHẢI là model
   while (history.length > 0 && history[0].role === "model") {
-    history.shift(); // Xóa phần tử đầu
+    history.shift(); 
   }
 
-  // Danh sách model của bạn
+  // Danh sách model ưu tiên (Tier 1)
   const models = ["gemini-1.5-flash-001", "gemini-1.5-pro-001", "gemini-pro"];
 
   for (const modelName of models) {
@@ -80,7 +78,7 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
       
       const chat = model.startChat({
         history: history, 
-        generationConfig: { maxOutputTokens: 200 },
+        generationConfig: { maxOutputTokens: 300 },
       });
 
       const result = await chat.sendMessage(message);
@@ -89,13 +87,19 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
 
     } catch (error: any) {
       console.warn(`⚠️ Model ${modelName} lỗi:`, error.message);
-      // Nếu lỗi do User/Model role vẫn còn, thử xóa sạch history chạy chat mới
-      if (error.message.includes("role 'user'")) {
+      
+      // LOGIC FIX LỖI SCOPE TẠI ĐÂY:
+      // Nếu lỗi do lịch sử chat (role 'user'...), ta khởi tạo lại model mới để reset
+      if (error.message.includes("role 'user'") || error.message.includes("content")) {
          try {
-            const chatReset = model.startChat({ history: [] }); // Reset history
+            // Khởi tạo lại model trong catch block để tránh lỗi "model is undefined"
+            const fallbackModel = genAI.getGenerativeModel({ model: modelName });
+            const chatReset = fallbackModel.startChat({ history: [] }); // Reset history về rỗng
             const resReset = await chatReset.sendMessage(message);
             return resReset.response.text();
-         } catch(e) {}
+         } catch(e) {
+             // Nếu reset vẫn lỗi thì bỏ qua, thử model tiếp theo
+         }
       }
     }
   }
@@ -108,7 +112,7 @@ async function sendReplyToFacebook(recipientId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
-  // Gửi trạng thái "Đang soạn tin..."
+  // Typing indicator
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -146,7 +150,6 @@ export async function POST(request: NextRequest) {
           const senderId = webhook_event.sender.id;
           const userMessage = webhook_event.message.text;
 
-          // Logic chính
           const history = await getChatHistory(senderId);
           const aiReply = await askGemini(userMessage, history);
           
@@ -158,6 +161,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ status: 'UNKNOWN' }, { status: 404 });
   } catch (error) {
+    console.error(error);
     return NextResponse.json({ error: 'Error' }, { status: 500 });
   }
 }
