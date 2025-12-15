@@ -39,7 +39,7 @@ async function askGemini(message) {
     // --- HELPER: Hỏi Gemini (Đã tối ưu cho Tier 1) ---
 async function askGemini(message) {
   // Key dán cứng để test (hoặc lấy từ process.env)
-  const API_KEY = "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
+  const API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0"; 
   
   if (!API_KEY) return "Bot đang bảo trì (Thiếu Key).";
 
