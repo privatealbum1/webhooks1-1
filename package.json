@@ -10,9 +10,15 @@
   },
   "dependencies": {
     "next": "latest",
-    "react": "^18",
-    "react-dom": "^18",
-    "firebase": "^10.12.0",
-    "@google/generative-ai": "^0.21.0"
+    "react": "latest",
+    "react-dom": "latest",
+    "firebase": "latest",
+    "@google/generative-ai": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
   }
 }
