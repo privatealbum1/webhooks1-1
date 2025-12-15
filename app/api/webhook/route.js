@@ -5,15 +5,12 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 
-// 🔴 THAY ĐỔI Ở ĐÂY: Dán trực tiếp API Key của bạn vào dấu ngoặc kép dưới đây
-// Ví dụ: const GEMINI_API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0";
-const GEMINI_API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0"; 
+// 🔴 LƯU Ý: Vẫn dùng Key dán cứng để test (nếu test OK nhớ đổi lại process.env sau)
+const GEMINI_API_KEY = "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
 
-// Khởi tạo Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-// ... (Giữ nguyên các phần code helper sendReplyToFacebook như cũ) ...
-
+// --- GỬI TIN FACEBOOK ---
 async function sendReplyToFacebook(recipientId, text) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
@@ -29,50 +26,38 @@ async function sendReplyToFacebook(recipientId, text) {
       body: JSON.stringify(body)
     });
   } catch (error) {
-    console.error("Lỗi gửi Facebook:", error);
+    console.error("Lỗi gửi FB:", error);
   }
 }
 
+// --- HỎI GEMINI (LOGIC FALLBACK THÔNG MINH) ---
 async function askGemini(message) {
-  try {
-
-    // --- HELPER: Hỏi Gemini (Đã tối ưu cho Tier 1) ---
-async function askGemini(message) {
-  // Key dán cứng để test (hoặc lấy từ process.env)
-  const API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0"; 
+  // Danh sách các model để thử lần lượt (Ưu tiên Flash 001 cho Tier 1)
+  const modelsToTry = ["gemini-1.5-flash-001", "gemini-1.5-pro-001", "gemini-pro"];
   
-  if (!API_KEY) return "Bot đang bảo trì (Thiếu Key).";
-
-  // Khởi tạo lại AI instance với Key cụ thể
-  const localGenAI = new GoogleGenerativeAI(API_KEY);
-  
-  try {
-    // 1. Ưu tiên dùng bản Flash cụ thể (Tier 1 thường thích cái này)
-    // Tên chuẩn: "gemini-1.5-flash-001" (Thay vì gemini-1.5-flash)
-    const model = localGenAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
-    
-    const prompt = `Bạn là trợ lý ảo. Khách nói: "${message}". Trả lời ngắn gọn dưới 50 từ:`;
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-    
-  } catch (error) {
-    console.error("❌ Lỗi Flash-001:", error.message);
-    
-    // 2. PHƯƠNG ÁN DỰ PHÒNG (Backup): Nếu Flash lỗi, dùng Gemini Pro (Bản 1.0)
-    // Bản này cực kỳ trâu bò, hiếm khi lỗi 404
+  for (const modelName of modelsToTry) {
     try {
-        console.log("👉 Đang chuyển sang model dự phòng Gemini Pro...");
-        const modelBackup = localGenAI.getGenerativeModel({ model: "gemini-pro" });
-        const resultBackup = await modelBackup.generateContent(message);
-        return resultBackup.response.text();
-    } catch (e) {
-        console.error("❌ Lỗi cả Model dự phòng:", e.message);
-        return "Hiện tại hệ thống AI đang quá tải, bạn vui lòng nhắn lại sau xíu nhé! 🤖";
+      console.log(`👉 Đang thử gọi model: ${modelName}...`);
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const prompt = `Bạn là trợ lý ảo. Khách nói: "${message}". Trả lời ngắn gọn dưới 50 từ:`;
+      
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+      
+      console.log(`✅ Thành công với model: ${modelName}`);
+      return responseText; // Trả về ngay nếu thành công
+      
+    } catch (error) {
+      console.error(`❌ Lỗi model ${modelName}: ${error.message}`);
+      // Nếu lỗi, vòng lặp sẽ tự chạy tiếp sang model tiếp theo trong danh sách
     }
   }
+
+  // Nếu thử hết danh sách mà vẫn lỗi
+  return "Hệ thống AI đang bảo trì, vui lòng thử lại sau giây lát! 🤖";
 }
 
-// ... (Giữ nguyên phần POST và GET handler như cũ) ...
+// --- WEBHOOK HANDLERS ---
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === VERIFY_TOKEN) {
@@ -89,6 +74,7 @@ export async function POST(request) {
         const webhook_event = entry.messaging ? entry.messaging[0] : null;
         if (webhook_event && webhook_event.message && !webhook_event.message.is_echo && webhook_event.message.text) {
             const senderId = webhook_event.sender.id;
+            // Gọi hàm AI thông minh
             const aiReply = await askGemini(webhook_event.message.text);
             await sendReplyToFacebook(senderId, aiReply);
         }
