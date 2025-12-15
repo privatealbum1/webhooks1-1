@@ -6,7 +6,7 @@ const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 
 // 🔴 LƯU Ý: Vẫn dùng Key dán cứng để test (nếu test OK nhớ đổi lại process.env sau)
-const GEMINI_API_KEY = "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
+const GEMINI_API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0"; 
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
