@@ -71,6 +71,87 @@ async function markCommentAsProcessed(commentId: string) {
   }
 }
 
+// --- TÍNH NĂNG 3: NÂNG CẤP COMMENT HANDLER WITH KOL ---
+/**
+ * Xử lý comment với KOL personality hoàn chỉnh
+ * - Load KOL profile từ pageId
+ * - Load personality & conversation history
+ * - Generate reply theo style KOL
+ * - Apply human-like delays
+ * - Track stats
+ */
+async function handleCommentWithKOL(
+  commentId: string,
+  userMessage: string,
+  pageId: string,
+  senderId: string
+): Promise<void> {
+  try {
+    // 1. Tìm KOL profile từ pageId
+    const kol = await getKOLForResponse(pageId);
+
+    if (!kol) {
+      console.log(`⚠️ No active KOL found for page ${pageId}`);
+      return;
+    }
+
+    if (!kol.engagement_rules.auto_reply_comments) {
+      console.log(`⚠️ Auto-reply comments disabled for KOL ${kol.name}`);
+      return;
+    }
+
+    console.log(`💬 [KOL: ${kol.name}] Processing comment from user ${senderId}`);
+
+    // 2. Load personality & history
+    const systemPrompt = generateSystemPrompt(kol);
+
+    // Load recent conversation history with this user (if exists)
+    const conversationHistory = await getChatHistory(senderId);
+
+    // 3. Apply human-like delay
+    const delay = getHumanLikeDelay(kol);
+    console.log(`⏱️ Simulating human delay: ${delay}s`);
+    await simulateHumanDelay(delay);
+
+    // 4. Generate reply theo style KOL với context
+    let aiReply = await askGeminiWithPersonality(
+      userMessage,
+      conversationHistory.slice(-5), // Last 5 messages for context
+      systemPrompt
+    );
+
+    // 5. Post-process reply
+    aiReply = addEmojis(aiReply, kol.voice_characteristics.emoji_usage);
+
+    // Apply catchphrases randomly (20% chance)
+    if (Math.random() < 0.2 && kol.voice_characteristics.catchphrases.length > 0) {
+      const randomCatchphrase = kol.voice_characteristics.catchphrases[
+        Math.floor(Math.random() * kol.voice_characteristics.catchphrases.length)
+      ];
+      aiReply = `${aiReply} ${randomCatchphrase}`;
+    }
+
+    // 6. Send reply
+    await replyToComment(commentId, aiReply);
+
+    // 7. Save interaction & update stats
+    await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
+    await markCommentAsProcessed(commentId);
+    await updateKOLStats(kol.id, 'total_comments_replied');
+
+    console.log(`✅ [KOL: ${kol.name}] Successfully replied to comment ${commentId}`);
+  } catch (error) {
+    console.error(`🔥 Error in handleCommentWithKOL:`, error);
+  }
+}
+
+/**
+ * Simulate human typing/thinking delay
+ */
+async function simulateHumanDelay(seconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+}
+
 // --- GEMINI AI WITH KOL PERSONALITY ---
 async function askGeminiWithPersonality(
   message: string, 
@@ -208,13 +289,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // --- B. XỬ LÝ COMMENT ---
+        // --- B. XỬ LÝ COMMENT (UPGRADED WITH KOL) ---
         if (entry.changes) {
           for (const change of entry.changes) {
-            if (change.field === 'feed' && 
-                change.value.item === 'comment' && 
+            if (change.field === 'feed' &&
+                change.value.item === 'comment' &&
                 change.value.verb === 'add') {
-              
+
               const commentId = change.value.comment_id;
               const userMessage = change.value.message;
               const senderId = change.value.from.id;
@@ -222,7 +303,7 @@ export async function POST(request: NextRequest) {
               // 🛡️ KHÓA 1: Bỏ qua comment của chính Page
               if (senderId === MY_PAGE_ID) {
                 console.log("🚫 Bỏ qua comment của chính Page.");
-                continue; 
+                continue;
               }
 
               // 🛡️ KHÓA 2: Kiểm tra đã xử lý chưa
@@ -232,24 +313,9 @@ export async function POST(request: NextRequest) {
                 continue;
               }
 
-              // 🎯 KOL-POWERED REPLY
-              if (kol && kol.engagement_rules.auto_reply_comments) {
-                console.log(`💬 [KOL: ${kol.name}] Processing comment: ${userMessage}`);
-                
-                const systemPrompt = generateSystemPrompt(kol);
-                const delay = getHumanLikeDelay(kol);
-                
-                await new Promise(resolve => setTimeout(resolve, delay * 1000));
-                
-                let aiReply = await askGeminiWithPersonality(userMessage, [], systemPrompt);
-                aiReply = addEmojis(aiReply, kol.voice_characteristics.emoji_usage);
-                
-                await replyToComment(commentId, aiReply);
-                await markCommentAsProcessed(commentId);
-                await updateKOLStats(kol.id, 'total_comments_replied');
-              } else {
-                console.log("⚠️ No active KOL or auto-reply disabled for comments");
-              }
+              // 🎯 TÍNH NĂNG 3: XỬ LÝ COMMENT VỚI KOL PERSONALITY
+              // Sử dụng handleCommentWithKOL function nâng cao
+              await handleCommentWithKOL(commentId, userMessage, pageId, senderId);
             }
           }
         }
