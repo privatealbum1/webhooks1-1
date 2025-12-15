@@ -1,8 +1,8 @@
 // app/api/content/generate/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getKOLProfile } from '@/app/lib/kol-manager';
-import { generateContentVariants, generateMedia } from '@/app/lib/content-manager';
-import { ContentGenerationRequest, MediaGenerationRequest } from '@/app/types/content';
+import { getKOLProfile } from '../../../lib/kol-manager';
+import { generateContentVariants, generateMedia } from '../../../lib/content-manager';
+import { ContentGenerationRequest, MediaGenerationRequest } from '../../../types/content';
 
 export async function POST(request: NextRequest) {
   try {

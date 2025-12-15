@@ -5,7 +5,7 @@ import {
   getAllScheduledContents,
   updateScheduledContent,
   deleteScheduledContent
-} from '@/app/lib/content-manager';
+} from '../../../lib/content-manager';
 
 // GET - Get all scheduled contents
 export async function GET(request: NextRequest) {

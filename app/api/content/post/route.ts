@@ -1,6 +1,6 @@
 // app/api/content/post/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getScheduledContent, updateScheduledContent, postToFacebook } from '@/app/lib/content-manager';
+import { getScheduledContent, updateScheduledContent, postToFacebook } from '../../../lib/content-manager';
 
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 
