@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp, doc, getDoc, setDoc } from "firebase/firestore";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 
 // --- CONFIG ---
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; 
+// 🔴 ĐIỀN ID PAGE CỦA BẠN VÀO ĐÂY ĐỂ CHẶN BOT TỰ REP CHÍNH MÌNH (Lấy trong phần Giới thiệu Page)
+const MY_PAGE_ID = "313615051829979"; // Lấy từ ảnh Screenshot_122 bạn gửi
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
@@ -15,7 +17,7 @@ interface ChatMessage {
   parts: Part[];
 }
 
-// --- 1. FIREBASE & GEMINI (GIỮ NGUYÊN LOGIC CŨ) ---
+// --- 1. FIREBASE: QUẢN LÝ LỊCH SỬ CHAT (MESSAGES) ---
 async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
   try {
     const userChatsRef = collection(db, "chats", senderId, "messages");
@@ -38,10 +40,33 @@ async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: str
   } catch (error) { console.error("🔥 Lỗi lưu chat:", error); }
 }
 
+// --- 2. FIREBASE: QUẢN LÝ COMMENT ĐÃ XỬ LÝ (CHỐNG SPAM) ---
+// Hàm này kiểm tra xem comment này Bot đã rep chưa
+async function isCommentProcessed(commentId: string): Promise<boolean> {
+  try {
+    const docRef = doc(db, "processed_comments", commentId);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists(); // Nếu tồn tại rồi -> Trả về true (Đã xử lý)
+  } catch (error) {
+    return false;
+  }
+}
+
+// Hàm này đánh dấu comment là đã xong
+async function markCommentAsProcessed(commentId: string) {
+  try {
+    await setDoc(doc(db, "processed_comments", commentId), {
+      processedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("🔥 Lỗi đánh dấu comment:", error);
+  }
+}
+
+// --- 3. GEMINI AI ---
 async function askGemini(message: string, history: ChatMessage[]): Promise<string> {
   while (history.length > 0 && history[0].role === "model") { history.shift(); }
   
-  // Model list
   const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"];
 
   for (const modelName of models) {
@@ -61,34 +86,25 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
       }
     }
   }
-  return "Cảm ơn bạn đã tương tác! (Hệ thống AI đang bận)";
+  return "AI đang bận, thử lại sau nhé!";
 }
 
-// --- 2. HÀM GỬI TIN NHẮN (MESSENGER) ---
+// --- 4. GỬI TIN NHẮN & REPLY COMMENT ---
 async function sendReplyToMessenger(recipientId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
-  
-  // Typing...
   await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipient: { id: recipientId }, sender_action: "typing_on" }) });
-
   const body = { recipient: { id: recipientId }, messaging_type: "RESPONSE", message: { text: text } };
-  try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } 
-  catch (error) { console.error("🔥 Lỗi Messenger:", error); }
+  try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch (e) {}
 }
 
-// --- 3. HÀM TRẢ LỜI COMMENT (NEW) ---
 async function replyToComment(commentId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
-  // API: POST /v24.0/{comment-id}/comments
   const url = `https://graph.facebook.com/v24.0/${commentId}/comments?access_token=${PAGE_ACCESS_TOKEN}`;
-  
-  const body = { message: text };
-  
   try {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
     const data = await res.json();
-    if (data.error) console.error("🔥 Lỗi Reply Comment:", data.error);
+    if (data.error) console.error("🔥 Lỗi Reply Comment:", data.error.message);
     else console.log("✅ Đã trả lời comment:", commentId);
   } catch (error) { console.error("🔥 Lỗi mạng Comment:", error); }
 }
@@ -110,7 +126,7 @@ export async function POST(request: NextRequest) {
       const entries = body.entry as any[];
       
       for (const entry of entries) {
-        // --- A. XỬ LÝ TIN NHẮN (MESSAGING) ---
+        // --- A. XỬ LÝ TIN NHẮN ---
         if (entry.messaging) {
           const webhook_event = entry.messaging[0];
           if (webhook_event?.message?.text && !webhook_event.message.is_echo) {
@@ -125,26 +141,37 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // --- B. XỬ LÝ COMMENT (FEED CHANGES) ---
+        // --- B. XỬ LÝ COMMENT (NÂNG CẤP CHỐNG LOOP) ---
         if (entry.changes) {
           for (const change of entry.changes) {
-            // Kiểm tra đúng là sự kiện thêm comment
             if (change.field === 'feed' && change.value.item === 'comment' && change.value.verb === 'add') {
               const commentId = change.value.comment_id;
               const userMessage = change.value.message;
               const senderId = change.value.from.id;
-              
-              // ⚠️ QUAN TRỌNG: Kiểm tra xem người comment có phải là Page không để tránh vòng lặp vô tận
-              // (Tạm thời lọc bằng logic: Nếu tên người gửi chứa chữ "Page" hoặc ID trùng Page ID thì bỏ qua.
-              // Ở đây mình cứ xử lý, nếu Bot tự reply thì webhook thường không báo lại sự kiện của chính nó nếu không cài echo)
-              
-              console.log(`💬 Comment mới từ ${senderId}: ${userMessage}`);
 
-              // Với Comment, tạm thời không cần load lịch sử dài dòng, chỉ cần trả lời đúng nội dung đó
-              // Có thể truyền history rỗng []
+              // 🛡️ KHÓA 1: Bỏ qua nếu người comment là chính Page (Dựa vào ID Page)
+              if (senderId === MY_PAGE_ID) {
+                console.log("🚫 Bỏ qua comment của chính Page.");
+                continue; 
+              }
+
+              // 🛡️ KHÓA 2: Kiểm tra Database xem comment này rep chưa
+              const alreadyProcessed = await isCommentProcessed(commentId);
+              if (alreadyProcessed) {
+                console.log("🚫 Comment này đã trả lời rồi, bỏ qua:", commentId);
+                continue;
+              }
+
+              console.log(`💬 Xử lý comment mới: ${userMessage}`);
+              
+              // Gọi AI trả lời
               const aiReply = await askGemini(userMessage, []);
               
+              // Trả lời trên Facebok
               await replyToComment(commentId, aiReply);
+
+              // 🛡️ Đánh dấu đã xong vào Database ngay lập tức
+              await markCommentAsProcessed(commentId);
             }
           }
         }
