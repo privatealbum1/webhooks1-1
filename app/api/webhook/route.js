@@ -13,7 +13,7 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || "");
 async function sendReplyToFacebook(recipientId, text) {
   if (!PAGE_ACCESS_TOKEN) return;
 
-  const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
+  const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
   const body = {
     recipient: { id: recipientId },
     messaging_type: "RESPONSE",
