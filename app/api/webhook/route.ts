@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '../../lib/firebase';
-import { collection, addDoc, query, where, orderBy, limit, getDocs, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp } from "firebase/firestore";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 
 // --- CONFIG ---
@@ -15,13 +15,14 @@ interface ChatMessage {
   parts: Part[];
 }
 
-// --- 1. FIREBASE: LẤY LỊCH SỬ ---
+// --- 1. FIREBASE: LẤY LỊCH SỬ (SUB-COLLECTION) ---
 async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
   try {
-    const chatsRef = collection(db, "chats");
+    // Trỏ vào thư mục con: chats -> [ID User] -> messages
+    const userChatsRef = collection(db, "chats", senderId, "messages");
+    
     const q = query(
-      chatsRef, 
-      where("senderId", "==", senderId), 
+      userChatsRef, 
       orderBy("createdAt", "desc"), 
       limit(10)
     );
@@ -31,8 +32,7 @@ async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
     
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      // Logic chuẩn: Unshift Bot trước -> Unshift User sau
-      // Kết quả mảng sẽ là: [User, Bot, User, Bot...]
+      // Logic sắp xếp: [User, Bot, User, Bot...]
       if (data.botReply) {
         history.unshift({ role: "model", parts: [{ text: data.botReply }] });
       }
@@ -48,11 +48,12 @@ async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
   }
 }
 
-// --- 2. FIREBASE: LƯU CHAT ---
+// --- 2. FIREBASE: LƯU CHAT (SUB-COLLECTION) ---
 async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: string) {
   try {
-    await addDoc(collection(db, "chats"), {
-      senderId,
+    const userChatsRef = collection(db, "chats", senderId, "messages");
+
+    await addDoc(userChatsRef, {
       userMessage: userMsg,
       botReply: botMsg,
       createdAt: serverTimestamp()
@@ -62,16 +63,18 @@ async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: str
   }
 }
 
-// --- 3. GEMINI SDK (CÓ BỘ LỌC AN TOÀN) ---
+// --- 3. GEMINI SDK (UPDATE MODEL V2.5) ---
 async function askGemini(message: string, history: ChatMessage[]): Promise<string> {
-  // 🔴 BỘ LỌC QUAN TRỌNG: Xóa sạch tin nhắn Bot ở đầu hàng
-  // Đảm bảo tin đầu tiên LUÔN LUÔN là "user"
+  // BỘ LỌC: Đảm bảo User luôn nói trước
   while (history.length > 0 && history[0].role === "model") {
     history.shift(); 
   }
 
-  // Danh sách model (Dùng Alias ngắn gọn để tránh lỗi version)
-  const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  // 🔴 CẬP NHẬT DANH SÁCH MODEL MỚI NHẤT (Theo yêu cầu của bạn)
+  // Ưu tiên 1: Bản 2.5 Flash (Nhanh, Rẻ, Thông minh)
+  // Ưu tiên 2: Bản 2.5 Pro (Nếu Flash lỗi thì dùng bản xịn nhất)
+  // Ưu tiên 3: Bản 1.5 Flash (Dự phòng cuối cùng nếu dòng 2.5 sập)
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"];
 
   for (const modelName of models) {
     try {
@@ -79,7 +82,7 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
       
       const chat = model.startChat({
         history: history, 
-        generationConfig: { maxOutputTokens: 300 },
+        generationConfig: { maxOutputTokens: 500 }, // Tăng độ dài trả lời lên xíu cho bản Pro "chém gió"
       });
 
       const result = await chat.sendMessage(message);
@@ -89,17 +92,14 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
     } catch (error: any) {
       console.warn(`⚠️ Model ${modelName} lỗi:`, error.message);
       
-      // 🔴 FIX LỖI SCOPE (Cannot find name 'model'):
-      // Khởi tạo lại model mới bên trong catch để reset
+      // LOGIC FIX SCOPE & RETRY (Giữ nguyên vì nó hoạt động tốt)
       if (error.message.includes("role 'user'") || error.message.includes("content")) {
          try {
             const fallbackModel = genAI.getGenerativeModel({ model: modelName });
-            const chatReset = fallbackModel.startChat({ history: [] }); // Reset lịch sử về 0
+            const chatReset = fallbackModel.startChat({ history: [] });
             const resReset = await chatReset.sendMessage(message);
             return resReset.response.text();
-         } catch(e) {
-            // Nếu reset cũng lỗi thì bỏ qua
-         }
+         } catch(e) {}
       }
     }
   }
@@ -112,7 +112,7 @@ async function sendReplyToFacebook(recipientId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
-  // Gửi trạng thái đang gõ
+  // Hiệu ứng "Đang soạn tin..."
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
