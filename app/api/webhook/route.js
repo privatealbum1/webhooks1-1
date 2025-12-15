@@ -35,16 +35,40 @@ async function sendReplyToFacebook(recipientId, text) {
 
 async function askGemini(message) {
   try {
-    // 🔴 QUAN TRỌNG: Nếu gemini-1.5-flash vẫn lỗi, hãy thử đổi thành "gemini-pro"
-    // Nhưng với Key mới, 1.5-flash phải chạy được!
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+    // --- HELPER: Hỏi Gemini (Đã tối ưu cho Tier 1) ---
+async function askGemini(message) {
+  // Key dán cứng để test (hoặc lấy từ process.env)
+  const API_KEY = "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
+  
+  if (!API_KEY) return "Bot đang bảo trì (Thiếu Key).";
+
+  // Khởi tạo lại AI instance với Key cụ thể
+  const localGenAI = new GoogleGenerativeAI(API_KEY);
+  
+  try {
+    // 1. Ưu tiên dùng bản Flash cụ thể (Tier 1 thường thích cái này)
+    // Tên chuẩn: "gemini-1.5-flash-001" (Thay vì gemini-1.5-flash)
+    const model = localGenAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
     
     const prompt = `Bạn là trợ lý ảo. Khách nói: "${message}". Trả lời ngắn gọn dưới 50 từ:`;
     const result = await model.generateContent(prompt);
     return result.response.text();
+    
   } catch (error) {
-    console.error("❌ Lỗi Gemini Chi Tiết:", error);
-    return "Bot đang bị lỗi kết nối AI, xin thử lại sau! 🤖";
+    console.error("❌ Lỗi Flash-001:", error.message);
+    
+    // 2. PHƯƠNG ÁN DỰ PHÒNG (Backup): Nếu Flash lỗi, dùng Gemini Pro (Bản 1.0)
+    // Bản này cực kỳ trâu bò, hiếm khi lỗi 404
+    try {
+        console.log("👉 Đang chuyển sang model dự phòng Gemini Pro...");
+        const modelBackup = localGenAI.getGenerativeModel({ model: "gemini-pro" });
+        const resultBackup = await modelBackup.generateContent(message);
+        return resultBackup.response.text();
+    } catch (e) {
+        console.error("❌ Lỗi cả Model dự phòng:", e.message);
+        return "Hiện tại hệ thống AI đang quá tải, bạn vui lòng nhắn lại sau xíu nhé! 🤖";
+    }
   }
 }
 
