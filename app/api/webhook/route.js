@@ -47,7 +47,7 @@ async function askGemini(message) {
   if (!GEMINI_API_KEY) return "Xin lỗi, hệ thống AI đang bảo trì (Thiếu Key).";
   
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     // Prompt đóng vai nhân viên CSKH
     const prompt = `Bạn là nhân viên chăm sóc khách hàng thân thiện. Khách nói: "${message}". Hãy trả lời ngắn gọn, vui vẻ dưới 50 từ.`;
     
