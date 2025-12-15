@@ -6,10 +6,12 @@ import { KOLProfile } from '../../../types/kol';
 // GET: Lấy thông tin 1 KOL
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // <-- SỬA: Thêm Promise
 ) {
   try {
-    const profile = await getKOLProfile(params.id);
+    const { id } = await params; // <-- SỬA: Phải await params trước
+
+    const profile = await getKOLProfile(id);
     
     if (!profile) {
       return NextResponse.json(
@@ -31,13 +33,14 @@ export async function GET(
 // PATCH: Cập nhật KOL profile
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // <-- SỬA
 ) {
   try {
+    const { id } = await params; // <-- SỬA
     const body = await request.json();
     
     // Kiểm tra profile có tồn tại không
-    const existingProfile = await getKOLProfile(params.id);
+    const existingProfile = await getKOLProfile(id);
     if (!existingProfile) {
       return NextResponse.json(
         { success: false, error: 'KOL profile not found' },
@@ -45,7 +48,7 @@ export async function PATCH(
       );
     }
     
-    await updateKOLProfile(params.id, body as Partial<KOLProfile>);
+    await updateKOLProfile(id, body as Partial<KOLProfile>);
     
     return NextResponse.json({ 
       success: true, 
@@ -63,10 +66,12 @@ export async function PATCH(
 // DELETE: Xóa KOL profile
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // <-- SỬA
 ) {
   try {
-    const existingProfile = await getKOLProfile(params.id);
+    const { id } = await params; // <-- SỬA
+
+    const existingProfile = await getKOLProfile(id);
     if (!existingProfile) {
       return NextResponse.json(
         { success: false, error: 'KOL profile not found' },
@@ -74,7 +79,7 @@ export async function DELETE(
       );
     }
     
-    await deleteKOLProfile(params.id);
+    await deleteKOLProfile(id);
     
     return NextResponse.json({ 
       success: true, 
