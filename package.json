@@ -6,15 +6,15 @@
     "firebase": "latest",
     "@google/generative-ai": "latest",
     "@greatsumini/react-facebook-login": "latest",
-    "lucide-react": "latest"  // ← THIẾU CÁI NÀY
+    "lucide-react": "latest"  
   },
   "devDependencies": {
     "typescript": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "tailwindcss": "latest",      // ← THIẾU
-    "autoprefixer": "latest",     // ← THIẾU
-    "postcss": "latest"           // ← THIẾU
+    "tailwindcss": "latest",     
+    "autoprefixer": "latest",    
+    "postcss": "latest"          
   }
 }
