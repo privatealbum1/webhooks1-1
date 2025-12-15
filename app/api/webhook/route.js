@@ -37,7 +37,7 @@ async function askGemini(message) {
   try {
     // 🔴 QUAN TRỌNG: Nếu gemini-1.5-flash vẫn lỗi, hãy thử đổi thành "gemini-pro"
     // Nhưng với Key mới, 1.5-flash phải chạy được!
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
     
     const prompt = `Bạn là trợ lý ảo. Khách nói: "${message}". Trả lời ngắn gọn dưới 50 từ:`;
     const result = await model.generateContent(prompt);
