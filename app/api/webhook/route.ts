@@ -31,8 +31,14 @@ async function getChatHistory(senderId: string): Promise<ChatMessage[]> {
     
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      if (data.botReply) history.unshift({ role: "model", parts: [{ text: data.botReply }] });
-      if (data.userMessage) history.unshift({ role: "user", parts: [{ text: data.userMessage }] });
+      // Logic chuẩn: Unshift Bot trước -> Unshift User sau
+      // Kết quả mảng sẽ là: [User, Bot, User, Bot...]
+      if (data.botReply) {
+        history.unshift({ role: "model", parts: [{ text: data.botReply }] });
+      }
+      if (data.userMessage) {
+        history.unshift({ role: "user", parts: [{ text: data.userMessage }] });
+      }
     });
     
     return history;
@@ -56,15 +62,16 @@ async function saveChatToFirebase(senderId: string, userMsg: string, botMsg: str
   }
 }
 
-// --- 3. GEMINI SDK (UPDATE MODEL LIST) ---
+// --- 3. GEMINI SDK (CÓ BỘ LỌC AN TOÀN) ---
 async function askGemini(message: string, history: ChatMessage[]): Promise<string> {
-  // BỘ LỌC
+  // 🔴 BỘ LỌC QUAN TRỌNG: Xóa sạch tin nhắn Bot ở đầu hàng
+  // Đảm bảo tin đầu tiên LUÔN LUÔN là "user"
   while (history.length > 0 && history[0].role === "model") {
     history.shift(); 
   }
 
-  // 🔴 DANH SÁCH MODEL MỚI (Dùng Alias chuẩn)
-  const models = ["gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-pro"];
+  // Danh sách model (Dùng Alias ngắn gọn để tránh lỗi version)
+  const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
 
   for (const modelName of models) {
     try {
@@ -82,14 +89,17 @@ async function askGemini(message: string, history: ChatMessage[]): Promise<strin
     } catch (error: any) {
       console.warn(`⚠️ Model ${modelName} lỗi:`, error.message);
       
-      // FIX LỖI SCOPE & RETRY
+      // 🔴 FIX LỖI SCOPE (Cannot find name 'model'):
+      // Khởi tạo lại model mới bên trong catch để reset
       if (error.message.includes("role 'user'") || error.message.includes("content")) {
          try {
             const fallbackModel = genAI.getGenerativeModel({ model: modelName });
-            const chatReset = fallbackModel.startChat({ history: [] }); 
+            const chatReset = fallbackModel.startChat({ history: [] }); // Reset lịch sử về 0
             const resReset = await chatReset.sendMessage(message);
             return resReset.response.text();
-         } catch(e) {}
+         } catch(e) {
+            // Nếu reset cũng lỗi thì bỏ qua
+         }
       }
     }
   }
@@ -102,6 +112,7 @@ async function sendReplyToFacebook(recipientId: string, text: string) {
   if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
+  // Gửi trạng thái đang gõ
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -119,6 +130,7 @@ async function sendReplyToFacebook(recipientId: string, text: string) {
   } catch (error) { console.error("🔥 Lỗi FB:", error); }
 }
 
+// --- HANDLERS ---
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === VERIFY_TOKEN) {
