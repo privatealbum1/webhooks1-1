@@ -39,6 +39,7 @@ export async function createKOLProfile(data: Partial<KOLProfile>): Promise<strin
 }
 
 // === READ ===
+// ĐÃ SỬA: Thêm từ khóa 'function'
 export async function getKOLProfile(id: string): Promise<KOLProfile | null> {
   try {
     const docRef = doc(db, KOL_COLLECTION, id);
@@ -54,6 +55,7 @@ export async function getKOLProfile(id: string): Promise<KOLProfile | null> {
   }
 }
 
+// ĐÃ SỬA: Thêm từ khóa 'function'
 export async function getAllKOLProfiles(userId?: string): Promise<KOLProfile[]> {
   try {
     let q = query(collection(db, KOL_COLLECTION), orderBy('createdAt', 'desc'));
@@ -70,6 +72,7 @@ export async function getAllKOLProfiles(userId?: string): Promise<KOLProfile[]> 
   }
 }
 
+// ĐÃ SỬA: Thêm từ khóa 'function'
 export async function getKOLByPageId(pageId: string): Promise<KOLProfile | null> {
   try {
     const q = query(
@@ -139,6 +142,28 @@ export async function deleteKOLProfile(id: string): Promise<void> {
 }
 
 // === BUSINESS LOGIC ===
+
+// ĐÃ BỔ SUNG: Hàm generateSystemPrompt (Cái này thiếu gây lỗi build)
+export function generateSystemPrompt(kol: KOLProfile): string {
+  return `
+    You are ${kol.name}, a ${kol.age}-year-old ${kol.gender} content creator.
+    
+    YOUR PERSONALITY:
+    - Tone: ${kol.personality.tone}
+    - Writing Style: ${kol.personality.writing_style}
+    - Key Topics: ${kol.personality.topics.join(', ')}
+    
+    YOUR BACKGROUND:
+    ${kol.bio}
+    
+    INSTRUCTIONS:
+    - Reply naturally as a user on Facebook.
+    - Keep it short, engaging, and relevant to the context.
+    - Use Vietnamese language naturally.
+    - Do not sound like an AI or a bot.
+    - Emoji usage level: ${kol.personality.emoji_usage}.
+  `;
+}
 
 // Kiểm tra xem có nên trả lời không (dựa vào rules)
 export function shouldReply(kol: KOLProfile): boolean {
