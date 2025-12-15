@@ -1,54 +1,95 @@
 "use client";
 import { useState } from 'react';
-import FacebookLogin from '@greatsumini/react-facebook-login'; // Cài: npm i @greatsumini/react-facebook-login
+import FacebookLogin from '@greatsumini/react-facebook-login';
+
+// 🔴 QUAN TRỌNG: Thay số này bằng App ID lấy trong: developers.facebook.com -> App Settings -> Basic
+const YOUR_FB_APP_ID = "3918018128495962"; 
 
 export default function ConnectPage() {
   const [pages, setPages] = useState<any[]>([]);
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // 1. Sau khi khách Login FB thành công -> Lấy User Token
+  // Xử lý khi đăng nhập thành công
   const onLoginSuccess = async (response: any) => {
-    setStatus("Đang lấy danh sách Page...");
-    const userAccessToken = response.accessToken;
+    setLoading(true);
+    setStatus("Đang kết nối với hệ thống...");
+    
+    try {
+      const userAccessToken = response.accessToken;
 
-    // Gọi API để lấy danh sách Page và lưu vào Firebase
-    const res = await fetch('/api/connect-page', {
-      method: 'POST',
-      body: JSON.stringify({ userAccessToken }),
-    });
-    const data = await res.json();
-    setPages(data.pages);
-    setStatus("Đã tải xong! Bot đã tự động kích hoạt cho các Page dưới đây:");
+      // Gọi API nội bộ (Serverless Function trên Vercel)
+      const res = await fetch('/api/connect-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAccessToken }),
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        setPages(data.pages);
+        setStatus(`✅ Thành công! Đã kích hoạt Bot cho ${data.pages.length} Fanpage.`);
+      } else {
+        setStatus("❌ Lỗi: " + data.error);
+      }
+    } catch (error) {
+      setStatus("❌ Lỗi kết nối server.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div style={{ padding: 50, textAlign: 'center' }}>
-      <h1>Kích hoạt Bot cho Page của bạn</h1>
+    <div style={{ padding: '50px 20px', maxWidth: 600, margin: '0 auto', textAlign: 'center', fontFamily: 'sans-serif' }}>
+      <h1 style={{ marginBottom: 30 }}>Kích hoạt Auto Comment & Inbox</h1>
       
-      {/* Nút Login Facebook */}
-      <FacebookLogin
-        appId="ID_APP_CUA_BAN_LAY_TREN_META" // 🔴 Điền App ID vào đây
-        onSuccess={onLoginSuccess}
-        onFail={(error) => console.log('Login Failed!', error)}
-        onProfileSuccess={(response) => console.log('Get Profile Success!', response)}
-        style={{ backgroundColor: '#4267b2', color: '#fff', padding: '10px 20px', cursor: 'pointer', border: 'none', borderRadius: 5 }}
-        children="Kết nối với Facebook"
-        scope="pages_manage_engagement,pages_read_engagement,pages_messaging,pages_show_list,pages_read_user_content,pages_manage_metadata" 
-        // 👆 Xin đủ quyền như Token xịn của bạn
-      />
+      {!loading && pages.length === 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <FacebookLogin
+            appId={YOUR_FB_APP_ID}
+            onSuccess={onLoginSuccess}
+            onFail={(error) => setStatus('Đăng nhập thất bại!')}
+            style={{
+              backgroundColor: '#1877F2',
+              color: '#fff',
+              padding: '12px 24px',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+            }}
+            children="Kết nối Facebook & Kích hoạt Bot"
+            // Xin đủ quyền để Bot hoạt động
+            scope="pages_manage_engagement,pages_read_engagement,pages_messaging,pages_show_list,pages_read_user_content,pages_manage_metadata" 
+          />
+        </div>
+      )}
 
-      <p>{status}</p>
+      {loading && <p>⏳ Đang xử lý, vui lòng đợi...</p>}
+      
+      {status && <p style={{ marginTop: 20, fontWeight: 'bold' }}>{status}</p>}
 
-      {/* Danh sách Page đã kết nối */}
-      <div style={{ marginTop: 20 }}>
-        {pages.map((page) => (
-          <div key={page.id} style={{ border: '1px solid #ccc', padding: 10, margin: 10, borderRadius: 8 }}>
-            <h3>{page.name}</h3>
-            <p>✅ Đã kích hoạt Bot thành công</p>
-            <small>ID: {page.id}</small>
-          </div>
-        ))}
-      </div>
+      {pages.length > 0 && (
+        <div style={{ marginTop: 30, textAlign: 'left' }}>
+          <h3>Danh sách Page đã kích hoạt:</h3>
+          {pages.map((page) => (
+            <div key={page.id} style={{ 
+              padding: 15, 
+              border: '1px solid #ddd', 
+              borderRadius: 8, 
+              marginBottom: 10,
+              backgroundColor: '#f9f9f9' 
+            }}>
+              <div style={{ fontWeight: 'bold', fontSize: 18 }}>{page.name}</div>
+              <div style={{ color: '#666', fontSize: 14 }}>ID: {page.id}</div>
+              <div style={{ color: 'green', marginTop: 5 }}>● Đã bật tự động trả lời</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
