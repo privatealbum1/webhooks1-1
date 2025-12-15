@@ -4,79 +4,53 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // --- CONFIG ---
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// Khởi tạo Gemini (Đã fix lỗi thư viện cũ)
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || "");
+// 🔴 THAY ĐỔI Ở ĐÂY: Dán trực tiếp API Key của bạn vào dấu ngoặc kép dưới đây
+// Ví dụ: const GEMINI_API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0";
+const GEMINI_API_KEY = "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
 
-// --- HELPER: Gửi tin nhắn lại Facebook ---
+// Khởi tạo Gemini
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+// ... (Giữ nguyên các phần code helper sendReplyToFacebook như cũ) ...
+
 async function sendReplyToFacebook(recipientId, text) {
-  if (!PAGE_ACCESS_TOKEN) {
-    console.error("❌ LỖI NGHIÊM TRỌNG: Chưa có FB_PAGE_ACCESS_TOKEN trong biến môi trường!");
-    return;
-  }
-
-  // CẬP NHẬT: Dùng bản v24.0 mới nhất để khớp với Token của bạn
+  if (!PAGE_ACCESS_TOKEN) return;
   const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
-  
   const body = {
     recipient: { id: recipientId },
     messaging_type: "RESPONSE",
     message: { text: text }
   };
-
   try {
-    const res = await fetch(url, {
+    await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-
-    const data = await res.json();
-    
-    if (data.error) {
-      // Log lỗi chi tiết để debug
-      console.error("❌ Facebook API Error:", JSON.stringify(data.error, null, 2));
-      if (data.error.code === 190) console.error("👉 Nguyên nhân: Token hết hạn hoặc không đúng Token PAGE.");
-      if (data.error.code === 100) console.error("👉 Nguyên nhân: Sai quyền hoặc Token Cá Nhân (User Token). Hãy lấy lại Page Token.");
-    } else {
-      console.log("✅ Đã gửi tin nhắn thành công!");
-    }
   } catch (error) {
-    console.error("❌ Lỗi mạng (Fetch):", error);
+    console.error("Lỗi gửi Facebook:", error);
   }
 }
 
-// --- HELPER: Hỏi Gemini ---
 async function askGemini(message) {
-  if (!GEMINI_API_KEY) return "Bot đang bảo trì (Thiếu Key).";
-  
   try {
-    // Model chuẩn: gemini-1.5-flash
+    // 🔴 QUAN TRỌNG: Nếu gemini-1.5-flash vẫn lỗi, hãy thử đổi thành "gemini-pro"
+    // Nhưng với Key mới, 1.5-flash phải chạy được!
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
-    // Prompt nhập vai
-    const prompt = `Bạn là trợ lý ảo vui tính. Khách hỏi: "${message}". Trả lời ngắn gọn dưới 50 từ:`;
-    
+    const prompt = `Bạn là trợ lý ảo. Khách nói: "${message}". Trả lời ngắn gọn dưới 50 từ:`;
     const result = await model.generateContent(prompt);
     return result.response.text();
   } catch (error) {
-    console.error("❌ Lỗi Gemini:", error);
-    // Thử model backup nếu 1.5 lỗi
-    try {
-        const modelBackup = genAI.getGenerativeModel({ model: "gemini-pro" });
-        const res = await modelBackup.generateContent(message);
-        return res.response.text();
-    } catch (e) {
-        return "Hiện tại não bộ em đang nâng cấp, anh/chị chờ xíu nhé! 🤖";
-    }
+    console.error("❌ Lỗi Gemini Chi Tiết:", error);
+    return "Bot đang bị lỗi kết nối AI, xin thử lại sau! 🤖";
   }
 }
 
-// --- MAIN HANDLERS ---
+// ... (Giữ nguyên phần POST và GET handler như cũ) ...
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  // Xác thực Webhook
   if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === VERIFY_TOKEN) {
     return new NextResponse(searchParams.get('hub.challenge'), { status: 200 });
   }
@@ -86,31 +60,19 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-
     if (body.object === 'page') {
       for (const entry of body.entry) {
-        // Lấy tin nhắn đầu tiên trong mảng messaging
         const webhook_event = entry.messaging ? entry.messaging[0] : null;
-
         if (webhook_event && webhook_event.message && !webhook_event.message.is_echo && webhook_event.message.text) {
             const senderId = webhook_event.sender.id;
-            const userMessage = webhook_event.message.text;
-            
-            console.log(`📩 Nhận tin từ khách ${senderId}: ${userMessage}`);
-
-            // Xử lý song song: Vừa hỏi AI, vừa log (nếu cần)
-            const aiReply = await askGemini(userMessage);
-            
-            // Gửi trả lời
+            const aiReply = await askGemini(webhook_event.message.text);
             await sendReplyToFacebook(senderId, aiReply);
         }
       }
       return NextResponse.json({ status: 'EVENT_RECEIVED' });
     }
-
     return NextResponse.json({ status: 'UNKNOWN' }, { status: 404 });
   } catch (error) {
-    console.error("❌ Server Error:", error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: 'Error' }, { status: 500 });
   }
 }
