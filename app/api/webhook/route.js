@@ -7,7 +7,7 @@ const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 
 // 🔴 THAY ĐỔI Ở ĐÂY: Dán trực tiếp API Key của bạn vào dấu ngoặc kép dưới đây
 // Ví dụ: const GEMINI_API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0";
-const GEMINI_API_KEY = "DÁN_KEY_CỦA_BẠN_VÀO_ĐÂY"; 
+const GEMINI_API_KEY = "AIzaSyAkKdz2qkgR8zYFtI_HvwHvrSjmEOD1Kv0"; 
 
 // Khởi tạo Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
