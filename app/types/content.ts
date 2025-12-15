@@ -43,7 +43,7 @@ export interface ContentGenerationRequest {
   variants_count: number; // số lượng variants muốn tạo
   media_generation?: {
     enabled: boolean;
-    type: "dalle" | "midjourney" | "stable-diffusion";
+    type: "dalle" | "midjourney" | "runway" | "pika";
     prompt?: string;
   };
 }
