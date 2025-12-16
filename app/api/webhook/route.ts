@@ -15,6 +15,7 @@ import {
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; 
+const FB_APP_SECRET = process.env.FB_APP_SECRET || "";
 const MY_PAGE_ID = "313615051829979";
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
