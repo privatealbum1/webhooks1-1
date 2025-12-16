@@ -211,12 +211,36 @@ export default function KOLDashboard() {
                     <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">
                       {kol.personality?.language || 'N/A'}
                     </span>
-                    {kol.connected_pages?.length > 0 && (
-                      <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded-full">
-                        {kol.connected_pages.length} Pages
+                    {kol.connected_pages?.length > 0 ? (
+                      <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">
+                        📘 {kol.connected_pages.length} Page{kol.connected_pages.length > 1 ? 's' : ''}
+                      </span>
+                    ) : (
+                      <span className="bg-gray-100 text-gray-500 text-xs px-2 py-1 rounded-full">
+                        ⚠️ Chưa kết nối
                       </span>
                     )}
                   </div>
+
+                  {/* Connected Pages List */}
+                  {kol.connected_pages?.length > 0 && (
+                    <div className="mb-4 bg-gray-50 rounded-lg p-3">
+                      <p className="text-xs text-gray-600 font-semibold mb-2">Connected Pages:</p>
+                      <div className="space-y-1">
+                        {kol.connected_pages.slice(0, 2).map((pageId, idx) => (
+                          <div key={idx} className="text-xs text-gray-700 flex items-center gap-1">
+                            <span className="text-blue-500">•</span>
+                            <span className="font-mono truncate">{pageId}</span>
+                          </div>
+                        ))}
+                        {kol.connected_pages.length > 2 && (
+                          <p className="text-xs text-gray-500">
+                            +{kol.connected_pages.length - 2} more...
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Actions */}
                   <div className="flex gap-2">

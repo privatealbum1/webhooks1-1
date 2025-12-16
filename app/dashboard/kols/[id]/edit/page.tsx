@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Loader } from 'lucide-react';
+import { ArrowLeft, Save, Loader, Facebook, MessageSquare, Send, X, TestTube } from 'lucide-react';
 
 export default function EditKOLPage() {
   const [loading, setLoading] = useState(true);
@@ -11,6 +11,10 @@ export default function EditKOLPage() {
   const [formData, setFormData] = useState(null);
   const [currentExpertise, setCurrentExpertise] = useState('');
   const [currentPhrase, setCurrentPhrase] = useState('');
+  const [newPageId, setNewPageId] = useState('');
+  const [testMessage, setTestMessage] = useState('');
+  const [testResponse, setTestResponse] = useState('');
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     // Get KOL ID from URL
@@ -110,6 +114,56 @@ export default function EditKOLPage() {
         signature_phrases: formData.personality.signature_phrases.filter((_, i) => i !== index)
       }
     });
+  };
+
+  const addPage = () => {
+    if (newPageId.trim() && !formData.connected_pages.includes(newPageId.trim())) {
+      setFormData({
+        ...formData,
+        connected_pages: [...formData.connected_pages, newPageId.trim()]
+      });
+      setNewPageId('');
+    }
+  };
+
+  const removePage = (pageId) => {
+    setFormData({
+      ...formData,
+      connected_pages: formData.connected_pages.filter(p => p !== pageId)
+    });
+  };
+
+  const testPersonality = async () => {
+    if (!testMessage.trim()) {
+      alert('Vui lòng nhập tin nhắn test');
+      return;
+    }
+
+    setTesting(true);
+    setTestResponse('');
+
+    try {
+      const res = await fetch('/api/kols/test-personality', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kol_profile: formData,
+          message: testMessage
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setTestResponse(data.response);
+      } else {
+        setTestResponse('Lỗi: ' + data.error);
+      }
+    } catch (err) {
+      setTestResponse('Lỗi kết nối server');
+    } finally {
+      setTesting(false);
+    }
   };
 
   if (loading || !formData) {
@@ -580,6 +634,138 @@ export default function EditKOLPage() {
                           })}
                           className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none"
                         />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Connected Facebook Pages */}
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 mb-4 pb-2 border-b-2 border-purple-200 flex items-center gap-2">
+                <Facebook size={24} className="text-blue-600" />
+                Facebook Pages Kết Nối
+              </h2>
+
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Thêm Facebook Page ID
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newPageId}
+                    onChange={(e) => setNewPageId(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addPage())}
+                    className="flex-1 px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none"
+                    placeholder="Nhập Page ID hoặc Page URL..."
+                  />
+                  <button
+                    type="button"
+                    onClick={addPage}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  >
+                    <Facebook size={16} />
+                    Thêm
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  💡 Tip: Vào Facebook Page → About → Page ID hoặc paste URL
+                </p>
+              </div>
+
+              {formData.connected_pages.length === 0 ? (
+                <div className="bg-gray-50 rounded-xl p-8 text-center">
+                  <Facebook size={48} className="mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500">Chưa kết nối Page nào</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Thêm Page ID để KOL này có thể trả lời tự động
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {formData.connected_pages.map((pageId, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between bg-blue-50 rounded-xl p-4 hover:bg-blue-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Facebook size={20} className="text-blue-600" />
+                        <div>
+                          <p className="font-semibold text-gray-800">{pageId}</p>
+                          <p className="text-xs text-gray-500">Facebook Page ID</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePage(pageId)}
+                        className="text-red-600 hover:text-red-700 p-2 hover:bg-red-100 rounded-lg transition-colors"
+                        title="Xóa kết nối"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Personality Testing */}
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 mb-4 pb-2 border-b-2 border-purple-200 flex items-center gap-2">
+                <TestTube size={24} className="text-green-600" />
+                Test Personality
+              </h2>
+
+              <div className="bg-gradient-to-br from-green-50 to-blue-50 rounded-xl p-6">
+                <p className="text-sm text-gray-600 mb-4">
+                  Test xem KOL sẽ trả lời như thế nào với một tin nhắn mẫu
+                </p>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Tin nhắn test
+                    </label>
+                    <textarea
+                      value={testMessage}
+                      onChange={(e) => setTestMessage(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
+                      rows={3}
+                      placeholder="Ví dụ: Chào bạn, bạn có thể tư vấn cho mình về..."
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={testPersonality}
+                    disabled={testing || !testMessage.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl hover:bg-green-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {testing ? (
+                      <>
+                        <Loader className="animate-spin" size={20} />
+                        Đang test...
+                      </>
+                    ) : (
+                      <>
+                        <Send size={20} />
+                        Test Ngay
+                      </>
+                    )}
+                  </button>
+
+                  {testResponse && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Phản hồi từ KOL
+                      </label>
+                      <div className="bg-white rounded-xl p-4 border-2 border-green-200">
+                        <div className="flex items-start gap-3">
+                          <MessageSquare size={20} className="text-green-600 mt-1" />
+                          <p className="text-gray-800 flex-1">{testResponse}</p>
+                        </div>
                       </div>
                     </div>
                   )}
