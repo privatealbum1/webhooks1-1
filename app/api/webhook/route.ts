@@ -167,8 +167,11 @@ async function shouldReplyToComment(
     const parentDoc = await getDoc(doc(db, "processed_comments", parentId));
 
     if (!parentDoc.exists()) {
-      console.log(`⚠️ Parent comment ${parentId} không tồn tại → Skip reply`);
-      return false;
+      // Parent không tồn tại trong processed_comments
+      // → Có thể là post gốc hoặc comment chưa được track
+      // → Cho phép reply để không bỏ lỡ conversation
+      console.log(`✅ Parent comment ${parentId} không tồn tại (có thể là post gốc) → Sẽ reply`);
+      return true;
     }
 
     const parentData = parentDoc.data();
