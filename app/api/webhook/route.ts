@@ -7,8 +7,8 @@ import {
   getHumanLikeDelay, 
   addEmojis,
   updateKOLStats,
-  generateSystemPrompt,
-  KOL
+  generateSystemPrompt
+  // ĐÃ XÓA DÒNG: KOL
 } from '../../lib/kol-manager';
 
 // --- CONFIG ---
