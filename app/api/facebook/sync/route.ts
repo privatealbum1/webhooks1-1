@@ -85,22 +85,33 @@ export async function POST(request: NextRequest) {
     for (const page of finalPagesToSync) {
       try {
         const pageToken = page.page_access_token;
+        console.log(`🔄 Syncing page ${page.page_id}...`);
 
         // Sync stats
         if (sync_type === 'all' || sync_type === 'stats') {
           // Get page info for followers count
+          console.log(`📊 Fetching page info for ${page.page_id}...`);
           const pageInfoResult = await getPageInfo(page.page_id, pageToken);
           if (pageInfoResult.success && pageInfoResult.data) {
             totalFollowers += pageInfoResult.data.followers_count || 0;
+            console.log(`✅ Got followers: ${pageInfoResult.data.followers_count}`);
+          } else {
+            console.error(`❌ Failed to get page info: ${pageInfoResult.error}`);
+            results.errors.push(`Page ${page.page_id} info: ${pageInfoResult.error}`);
           }
 
           // Get page insights
+          console.log(`📈 Fetching insights for ${page.page_id}...`);
           const insightsResult = await getPageInsights(page.page_id, pageToken);
           if (insightsResult.success && insightsResult.insights) {
             const insights = insightsResult.insights;
             totalImpressions += insights.page_impressions || 0;
             totalEngagements += insights.page_post_engagements || 0;
             totalReach += insights.page_engaged_users || 0;
+            console.log(`✅ Got insights:`, insights);
+          } else {
+            console.error(`❌ Failed to get insights: ${insightsResult.error}`);
+            results.errors.push(`Page ${page.page_id} insights: ${insightsResult.error}`);
           }
         }
 

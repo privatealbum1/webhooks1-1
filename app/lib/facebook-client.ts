@@ -173,12 +173,33 @@ export async function getPageInsights(
     const metricsParam = metrics.join(',');
     const url = `${GRAPH_API_BASE}/${pageId}/insights?metric=${metricsParam}&period=${period}&access_token=${pageAccessToken}`;
 
+    console.log(`🔍 Fetching insights: ${GRAPH_API_BASE}/${pageId}/insights`);
+    console.log(`📊 Metrics: ${metricsParam}, Period: ${period}`);
+
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.error) {
-      console.error('❌ Facebook Insights API error:', data.error);
-      return { success: false, error: data.error.message };
+      console.error('❌ Facebook Insights API error:', JSON.stringify(data.error, null, 2));
+
+      // Check for specific permission errors
+      if (data.error.code === 190) {
+        return { success: false, error: 'Access token đã hết hạn hoặc không hợp lệ. Vui lòng kết nối lại Facebook Page.' };
+      }
+      if (data.error.code === 200) {
+        return { success: false, error: 'Không có quyền truy cập Page Insights. Token cần permissions: pages_read_engagement, read_insights' };
+      }
+
+      return { success: false, error: `${data.error.message} (Code: ${data.error.code})` };
+    }
+
+    // Check if data exists
+    if (!data.data || data.data.length === 0) {
+      console.warn('⚠️ No insights data available for this page');
+      return {
+        success: false,
+        error: 'Không có dữ liệu insights. Page có thể chưa có đủ hoạt động hoặc token thiếu permissions (pages_read_engagement, read_insights)'
+      };
     }
 
     // Parse insights data
@@ -191,8 +212,12 @@ export async function getPageInsights(
       page_posts_impressions: 0,
     };
 
+    console.log(`📈 Processing ${data.data.length} metrics...`);
+
     data.data?.forEach((metric: any) => {
       const value = metric.values?.[0]?.value || 0;
+      console.log(`  - ${metric.name}: ${value}`);
+
       switch (metric.name) {
         case 'page_fans':
           insights.followers_count = value;
@@ -341,15 +366,21 @@ export async function getPageInfo(
   try {
     const url = `${GRAPH_API_BASE}/${pageId}?fields=id,name,fan_count,followers_count,about,picture&access_token=${pageAccessToken}`;
 
+    console.log(`🔍 Fetching page info from: ${GRAPH_API_BASE}/${pageId}?fields=...`);
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.error) {
-      console.error('❌ Facebook Page API error:', data.error);
-      return { success: false, error: data.error.message };
+      console.error('❌ Facebook Page API error:', JSON.stringify(data.error, null, 2));
+      return { success: false, error: `${data.error.message} (Code: ${data.error.code}, Type: ${data.error.type})` };
     }
 
-    console.log('✅ Retrieved page info:', data.name);
+    console.log('✅ Retrieved page info:', {
+      name: data.name,
+      id: data.id,
+      fan_count: data.fan_count,
+      followers_count: data.followers_count
+    });
     return { success: true, data };
   } catch (error) {
     console.error('❌ Error getting page info:', error);

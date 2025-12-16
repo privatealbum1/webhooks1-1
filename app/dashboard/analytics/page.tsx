@@ -91,8 +91,18 @@ export default function AnalyticsPage() {
       });
 
       const result = await response.json();
+      console.log('📊 Sync result:', result);
+
       if (result.success) {
-        alert('✅ Đã đồng bộ stats thành công!');
+        const { results } = result;
+        let message = `✅ Đã đồng bộ ${results.synced_pages} pages thành công!`;
+
+        if (results.errors && results.errors.length > 0) {
+          message += `\n\n⚠️ Có ${results.errors.length} lỗi:\n` + results.errors.join('\n');
+        }
+
+        alert(message);
+
         // Refresh analytics
         fetchAnalytics(selectedKol, dateRange);
       } else {
@@ -100,7 +110,7 @@ export default function AnalyticsPage() {
       }
     } catch (error) {
       console.error('Error syncing stats:', error);
-      alert('❌ Lỗi khi đồng bộ stats');
+      alert('❌ Lỗi khi đồng bộ stats: ' + String(error));
     } finally {
       setSyncing(false);
     }
