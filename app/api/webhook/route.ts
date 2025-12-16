@@ -8,12 +8,11 @@ import {
   addEmojis,
   updateKOLStats,
   generateSystemPrompt
-  // ĐÃ XÓA DÒNG: KOL
 } from '../../lib/kol-manager';
 
 // --- CONFIG ---
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "dungdev_secret_code_123";
-// Lưu ý: FB_PAGE_ACCESS_TOKEN trong .env giờ chỉ đóng vai trò là backup (fallback)
+// FB_PAGE_ACCESS_TOKEN chỉ dùng làm backup nếu không tìm thấy token trong DB
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""; 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
@@ -139,20 +138,30 @@ async function shouldReplyToComment(commentId: string, parentId: string | null, 
 
 // --- GEMINI AI WITH KOL PERSONALITY ---
 async function askGeminiWithPersonality(message: string, history: ChatMessage[], systemPrompt: string): Promise<string> {
+  // Xóa lịch sử cũ của model
   while (history.length > 0 && history[0].role === "model") { history.shift(); }
-  const models = ["gemini-pro"]; // Dùng model ổn định nhất
+  
+  // Dùng model mới nhất để tránh lỗi 404
+  const modelName = "gemini-1.5-flash"; 
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro", systemInstruction: systemPrompt });
+    const model = genAI.getGenerativeModel({ 
+      model: modelName, 
+      systemInstruction: systemPrompt 
+    });
+    
     const chat = model.startChat({ 
       history: history, 
-      generationConfig: { maxOutputTokens: 500 } 
+      generationConfig: { 
+        maxOutputTokens: 500,
+        temperature: 0.9 // Tăng tính sáng tạo cho KOL
+      } 
     });
     
     const result = await chat.sendMessage(message);
     return (await result.response).text();
   } catch (error: any) {
-    console.error("Gemini Error:", error);
+    console.error(`Gemini Error (${modelName}):`, error);
     return "Hệ thống đang bận, thử lại sau nhé!";
   }
 }
