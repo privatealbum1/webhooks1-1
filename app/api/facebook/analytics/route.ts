@@ -1,5 +1,6 @@
 // app/api/facebook/analytics/route.ts
 // API endpoint for fetching Facebook analytics
+// Fetch page insights, post analytics, and aggregate KOL stats
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPageInsights, getPostAnalytics, getPageInfo } from '../../../lib/facebook-client';
