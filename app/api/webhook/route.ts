@@ -219,9 +219,38 @@ async function handleCommentWithKOL(
     await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
     await updateKOLStats(kol.id, 'total_comments_replied');
 
+    // 11. Trigger background sync for engagement stats (async, non-blocking)
+    syncEngagementStats(kol.id, pageId).catch(err =>
+      console.error('Background sync error:', err)
+    );
+
     console.log(`✅ [KOL: ${kol.name}] Successfully replied to comment ${commentId}`);
   } catch (error) {
     console.error(`🔥 Error in handleCommentWithKOL:`, error);
+  }
+}
+
+/**
+ * Sync engagement stats in background (non-blocking)
+ */
+async function syncEngagementStats(kolId: string, pageId: string): Promise<void> {
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/facebook/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kol_id: kolId,
+        page_id: pageId,
+        sync_type: 'stats'
+      }),
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      console.log(`📊 Background sync completed for KOL ${kolId}`);
+    }
+  } catch (error) {
+    console.error('Error in background sync:', error);
   }
 }
 

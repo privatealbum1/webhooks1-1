@@ -257,6 +257,14 @@ export default function MainDashboard() {
                 <span className="font-semibold">📅 Content Calendar</span>
                 <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">NEW</span>
               </button>
+
+              <button
+                onClick={() => window.location.href = '/dashboard/analytics'}
+                className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all shadow-md hover:shadow-lg"
+              >
+                <span className="font-semibold">📊 Analytics</span>
+                <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full">HOT</span>
+              </button>
             </div>
 
             <div className="mt-6 pt-6 border-t-2 border-gray-100">

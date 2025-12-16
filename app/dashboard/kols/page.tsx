@@ -188,17 +188,29 @@ export default function KOLDashboard() {
                   </p>
 
                   {/* Stats */}
-                  <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="grid grid-cols-2 gap-2 mb-4">
                     <div className="bg-blue-50 rounded-lg p-2 text-center">
-                      <p className="text-xs text-gray-500">Comments</p>
+                      <p className="text-xs text-gray-500">💬 Comments</p>
                       <p className="text-lg font-bold text-blue-600">
                         {kol.stats?.total_comments_replied || 0}
                       </p>
                     </div>
                     <div className="bg-purple-50 rounded-lg p-2 text-center">
-                      <p className="text-xs text-gray-500">Messages</p>
+                      <p className="text-xs text-gray-500">✉️ Messages</p>
                       <p className="text-lg font-bold text-purple-600">
                         {kol.stats?.total_messages_replied || 0}
+                      </p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-2 text-center">
+                      <p className="text-xs text-gray-500">👥 Followers</p>
+                      <p className="text-sm font-bold text-green-600">
+                        {(kol.stats?.followers_count || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="bg-orange-50 rounded-lg p-2 text-center">
+                      <p className="text-xs text-gray-500">📈 Eng. Rate</p>
+                      <p className="text-sm font-bold text-orange-600">
+                        {(kol.stats?.engagement_rate || 0).toFixed(1)}%
                       </p>
                     </div>
                   </div>
