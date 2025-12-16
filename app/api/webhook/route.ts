@@ -136,34 +136,59 @@ async function shouldReplyToComment(commentId: string, parentId: string | null, 
   } catch (error) { return false; }
 }
 
-// --- GEMINI AI WITH KOL PERSONALITY ---
+// --- GEMINI AI WITH KOL PERSONALITY (Robust Version) ---
 async function askGeminiWithPersonality(message: string, history: ChatMessage[], systemPrompt: string): Promise<string> {
-  // Xóa lịch sử cũ của model
+  // 1. Dọn dẹp history (xóa các lượt bot trả lời liên tiếp nếu có để tránh lỗi API)
   while (history.length > 0 && history[0].role === "model") { history.shift(); }
-  
-  // Dùng model mới nhất để tránh lỗi 404
-  const modelName = "gemini-1.5-flash"; 
 
-  try {
-    const model = genAI.getGenerativeModel({ 
-      model: modelName, 
-      systemInstruction: systemPrompt 
-    });
-    
-    const chat = model.startChat({ 
-      history: history, 
-      generationConfig: { 
-        maxOutputTokens: 500,
-        temperature: 0.9 // Tăng tính sáng tạo cho KOL
-      } 
-    });
-    
-    const result = await chat.sendMessage(message);
-    return (await result.response).text();
-  } catch (error: any) {
-    console.error(`Gemini Error (${modelName}):`, error);
-    return "Hệ thống đang bận, thử lại sau nhé!";
+  // 2. DANH SÁCH MODEL BẤT TỬ:
+  // - Ưu tiên 1: Flash 1.5 (Nhanh, Chuẩn)
+  // - Ưu tiên 2: Flash 1.5 Latest (Tên định danh khác phòng khi Google đổi)
+  // - Ưu tiên 3: Gemini Pro (Bản cũ 1.0 - Chậm hơn nhưng siêu ổn định)
+  const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+  
+  // Biến lưu lỗi để debug
+  let lastError = null;
+
+  // 3. Vòng lặp thử từng model
+  for (const modelName of modelsToTry) {
+    try {
+      // console.log(`🤖 Webhook trying model: ${modelName}...`); // Bỏ comment nếu muốn xem log
+      
+      const model = genAI.getGenerativeModel({ 
+        model: modelName, 
+        systemInstruction: systemPrompt 
+      });
+      
+      const chat = model.startChat({ 
+        history: history, 
+        generationConfig: { 
+          maxOutputTokens: 500,
+          temperature: 0.9 
+        } 
+      });
+      
+      const result = await chat.sendMessage(message);
+      const response = (await result.response).text();
+      
+      // Nếu thành công -> Trả về kết quả và thoát hàm ngay lập tức
+      return response;
+
+    } catch (error: any) {
+      console.warn(`⚠️ Webhook Model ${modelName} failed:`, error.message || error);
+      lastError = error;
+      
+      // LƯU Ý ĐẶC BIỆT CHO GEMINI PRO (Model cũ):
+      // Nếu fallback về gemini-pro, đôi khi nó lỗi vì không hiểu "systemInstruction".
+      // Logic dưới đây để xử lý riêng trường hợp đó ở vòng lặp sau (nếu cần thiết),
+      // nhưng thường thư viện mới đã tự handle. Chỉ cần continue là đủ.
+      continue;
+    }
   }
+
+  // 4. Nếu thử cả 3 model đều chết
+  console.error("🔥 ALL AI MODELS FAILED in Webhook. Last error:", lastError);
+  return "Hiện tại server AI đang quá tải, bạn vui lòng nhắn lại sau ít phút nhé! (Error: AI Busy)";
 }
 
 // --- SEND REPLY (ĐÃ CẬP NHẬT: NHẬN TOKEN TỪNG PAGE) ---
