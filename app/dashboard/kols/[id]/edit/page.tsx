@@ -15,6 +15,9 @@ export default function EditKOLPage() {
   const [testMessage, setTestMessage] = useState('');
   const [testResponse, setTestResponse] = useState('');
   const [testing, setTesting] = useState(false);
+  const [availablePages, setAvailablePages] = useState([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+  const [selectedPage, setSelectedPage] = useState('');
 
   useEffect(() => {
     // Get KOL ID from URL
@@ -22,7 +25,23 @@ export default function EditKOLPage() {
     const id = pathParts[pathParts.length - 2];
     setKolId(id);
     fetchKOL(id);
+    fetchAvailablePages();
   }, []);
+
+  const fetchAvailablePages = async () => {
+    setLoadingPages(true);
+    try {
+      const res = await fetch('/api/pages/available');
+      const data = await res.json();
+      if (data.success) {
+        setAvailablePages(data.pages);
+      }
+    } catch (err) {
+      console.error('Error fetching available pages:', err);
+    } finally {
+      setLoadingPages(false);
+    }
+  };
 
   const fetchKOL = async (id) => {
     setLoading(true);
@@ -116,6 +135,37 @@ export default function EditKOLPage() {
     });
   };
 
+  const addPageFromDropdown = () => {
+    if (!selectedPage) {
+      alert('Vui lòng chọn Facebook Page');
+      return;
+    }
+
+    const page = availablePages.find(p => p.page_id === selectedPage);
+    if (!page) return;
+
+    // Check if page already added
+    const existingPages = formData.facebook_pages || [];
+    if (existingPages.find(p => p.page_id === page.page_id)) {
+      alert('Page này đã được kết nối rồi');
+      return;
+    }
+
+    // Add to facebook_pages
+    setFormData({
+      ...formData,
+      facebook_pages: [...existingPages, {
+        page_id: page.page_id,
+        page_name: page.page_name,
+        page_access_token: page.page_access_token
+      }],
+      connected_pages: [...(formData.connected_pages || []), page.page_id]
+    });
+
+    setSelectedPage('');
+    alert(`✅ Đã kết nối với ${page.page_name}`);
+  };
+
   const addPage = () => {
     if (newPageId.trim() && !formData.connected_pages.includes(newPageId.trim())) {
       setFormData({
@@ -129,6 +179,7 @@ export default function EditKOLPage() {
   const removePage = (pageId) => {
     setFormData({
       ...formData,
+      facebook_pages: (formData.facebook_pages || []).filter(p => p.page_id !== pageId),
       connected_pages: formData.connected_pages.filter(p => p !== pageId)
     });
   };
@@ -648,9 +699,58 @@ export default function EditKOLPage() {
                 Facebook Pages Kết Nối
               </h2>
 
-              <div className="mb-4">
+              {/* Dropdown to select from available pages */}
+              <div className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  ✨ Chọn từ Pages đã kết nối với hệ thống
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedPage}
+                    onChange={(e) => setSelectedPage(e.target.value)}
+                    className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
+                    disabled={loadingPages}
+                  >
+                    <option value="">-- Chọn Facebook Page --</option>
+                    {availablePages.map((page) => (
+                      <option key={page.page_id} value={page.page_id}>
+                        {page.page_name} ({page.page_id}) - Token: {page.token_status === 'valid' ? '✅ Valid' : page.token_status === 'invalid' ? '❌ Invalid' : '⚠️ Unknown'}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={addPageFromDropdown}
+                    disabled={!selectedPage || loadingPages}
+                    className={`px-6 py-3 rounded-xl font-semibold transition-colors flex items-center gap-2 ${
+                      !selectedPage || loadingPages
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    <Facebook size={16} />
+                    Kết nối
+                  </button>
+                </div>
+                {loadingPages && (
+                  <p className="text-xs text-gray-500 mt-2">Đang tải danh sách pages...</p>
+                )}
+                {!loadingPages && availablePages.length === 0 && (
+                  <p className="text-xs text-orange-600 mt-2">
+                    ⚠️ Chưa có page nào được kết nối. Vui lòng vào <a href="/connect" className="underline">trang Connect</a> để kết nối Facebook Page trước.
+                  </p>
+                )}
+                {!loadingPages && availablePages.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 Các page được kết nối qua <a href="/connect" className="underline">/connect</a> sẽ tự động có access token
+                  </p>
+                )}
+              </div>
+
+              {/* Manual Page ID input (fallback) */}
+              <div className="mb-6">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Thêm Facebook Page ID
+                  🔧 Hoặc thêm Page ID thủ công
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -664,42 +764,47 @@ export default function EditKOLPage() {
                   <button
                     type="button"
                     onClick={addPage}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-2"
+                    className="px-6 py-2 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition-colors flex items-center gap-2"
                   >
                     <Facebook size={16} />
                     Thêm
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  💡 Tip: Vào Facebook Page → About → Page ID hoặc paste URL
+                  ⚠️ Chỉ dùng khi page chưa có trong danh sách. Token sẽ cần thêm sau.
                 </p>
               </div>
 
-              {formData.connected_pages.length === 0 ? (
+              {/* Connected Pages List */}
+              {(!formData.facebook_pages || formData.facebook_pages.length === 0) && formData.connected_pages.length === 0 ? (
                 <div className="bg-gray-50 rounded-xl p-8 text-center">
                   <Facebook size={48} className="mx-auto text-gray-300 mb-3" />
                   <p className="text-gray-500">Chưa kết nối Page nào</p>
                   <p className="text-sm text-gray-400 mt-1">
-                    Thêm Page ID để KOL này có thể trả lời tự động
+                    Thêm Page để KOL này có thể trả lời tự động
                   </p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {formData.connected_pages.map((pageId, index) => (
+                  {/* Show facebook_pages first (with full info) */}
+                  {(formData.facebook_pages || []).map((page, index) => (
                     <div
-                      key={index}
-                      className="flex items-center justify-between bg-blue-50 rounded-xl p-4 hover:bg-blue-100 transition-colors"
+                      key={`fb-${index}`}
+                      className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-4 border-2 border-blue-200"
                     >
                       <div className="flex items-center gap-3">
-                        <Facebook size={20} className="text-blue-600" />
+                        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                          <Facebook size={20} className="text-white" />
+                        </div>
                         <div>
-                          <p className="font-semibold text-gray-800">{pageId}</p>
-                          <p className="text-xs text-gray-500">Facebook Page ID</p>
+                          <p className="font-bold text-gray-800">{page.page_name}</p>
+                          <p className="text-xs text-gray-600 font-mono">{page.page_id}</p>
+                          <p className="text-xs text-green-600 mt-1">✅ Token có sẵn</p>
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => removePage(pageId)}
+                        onClick={() => removePage(page.page_id)}
                         className="text-red-600 hover:text-red-700 p-2 hover:bg-red-100 rounded-lg transition-colors"
                         title="Xóa kết nối"
                       >
@@ -707,6 +812,35 @@ export default function EditKOLPage() {
                       </button>
                     </div>
                   ))}
+
+                  {/* Show connected_pages without full info */}
+                  {formData.connected_pages
+                    .filter(pageId => !(formData.facebook_pages || []).find(p => p.page_id === pageId))
+                    .map((pageId, index) => (
+                      <div
+                        key={`cp-${index}`}
+                        className="flex items-center justify-between bg-yellow-50 rounded-xl p-4 border-2 border-yellow-200"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-yellow-500 rounded-full flex items-center justify-center">
+                            <Facebook size={20} className="text-white" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-800">{pageId}</p>
+                            <p className="text-xs text-gray-500">Facebook Page ID</p>
+                            <p className="text-xs text-orange-600 mt-1">⚠️ Cần thêm token</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removePage(pageId)}
+                          className="text-red-600 hover:text-red-700 p-2 hover:bg-red-100 rounded-lg transition-colors"
+                          title="Xóa kết nối"
+                        >
+                          <X size={20} />
+                        </button>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
