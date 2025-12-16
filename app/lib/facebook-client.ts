@@ -1,7 +1,7 @@
 // app/lib/facebook-client.ts
 // Facebook Graph API Client for posting, analytics, and sync
 
-const GRAPH_API_VERSION = 'v21.0';
+const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 export interface FacebookPost {
@@ -155,6 +155,68 @@ export async function postVideoToFacebookPage(
 }
 
 /**
+ * Fallback function - Get basic page insights one metric at a time
+ * Used when batch insights API fails with error #100
+ */
+async function getBasicPageInsights(
+  pageId: string,
+  pageAccessToken: string
+): Promise<{ success: boolean; insights?: PageInsights; error?: string }> {
+  try {
+    console.log('🔄 Trying basic insights approach (individual metrics)...');
+
+    const insights: PageInsights = {
+      page_id: pageId,
+      followers_count: 0,
+      page_impressions: 0,
+      page_engaged_users: 0,
+      page_post_engagements: 0,
+      page_posts_impressions: 0,
+    };
+
+    // Try to get each metric individually
+    const metricsToTry = [
+      { name: 'page_fans', key: 'followers_count' },
+      { name: 'page_impressions', key: 'page_impressions' },
+      { name: 'page_engaged_users', key: 'page_engaged_users' },
+      { name: 'page_post_engagements', key: 'page_post_engagements' },
+      { name: 'page_posts_impressions', key: 'page_posts_impressions' },
+    ];
+
+    let successCount = 0;
+
+    for (const metric of metricsToTry) {
+      try {
+        const url = `${GRAPH_API_BASE}/${pageId}/insights/${metric.name}?period=day&access_token=${pageAccessToken}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.data && data.data.length > 0 && data.data[0].values) {
+          const value = data.data[0].values[0]?.value || 0;
+          (insights as any)[metric.key] = value;
+          console.log(`  ✅ ${metric.name}: ${value}`);
+          successCount++;
+        } else if (data.error) {
+          console.log(`  ⚠️ ${metric.name}: ${data.error.message}`);
+        }
+      } catch (err) {
+        console.log(`  ⚠️ ${metric.name}: Failed to fetch`);
+      }
+    }
+
+    if (successCount > 0) {
+      console.log(`✅ Retrieved ${successCount}/${metricsToTry.length} metrics using fallback method`);
+      return { success: true, insights };
+    } else {
+      return { success: false, error: 'Không thể lấy bất kỳ metric nào. Token có thể thiếu permissions.' };
+    }
+  } catch (error) {
+    console.error('❌ Error in getBasicPageInsights:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
  * Get page insights (analytics)
  */
 export async function getPageInsights(
@@ -188,6 +250,11 @@ export async function getPageInsights(
       }
       if (data.error.code === 200) {
         return { success: false, error: 'Không có quyền truy cập Page Insights. Token cần permissions: pages_read_engagement, read_insights' };
+      }
+      if (data.error.code === 100) {
+        // Invalid metric - try safer approach with individual metrics
+        console.log('⚠️ Some metrics invalid (Code 100), trying fallback method...');
+        return await getBasicPageInsights(pageId, pageAccessToken);
       }
 
       return { success: false, error: `${data.error.message} (Code: ${data.error.code})` };

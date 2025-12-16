@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       // Test if token is still valid
       let tokenStatus = 'unknown';
       try {
-        const testUrl = `https://graph.facebook.com/v21.0/${doc.id}?fields=name,fan_count&access_token=${data.accessToken}`;
+        const testUrl = `https://graph.facebook.com/v24.0/${doc.id}?fields=name,fan_count&access_token=${data.accessToken}`;
         const testResponse = await fetch(testUrl);
         const testData = await testResponse.json();
 

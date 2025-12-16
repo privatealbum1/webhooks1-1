@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Call Facebook Graph API to exchange token
-    const url = `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${FB_APP_ID}&client_secret=${FB_APP_SECRET}&fb_exchange_token=${short_token}`;
+    const url = `https://graph.facebook.com/v24.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${FB_APP_ID}&client_secret=${FB_APP_SECRET}&fb_exchange_token=${short_token}`;
 
     console.log('🔄 Extending token...');
     const response = await fetch(url);

@@ -68,7 +68,7 @@ FB_APP_SECRET=your_app_secret_here
 
 #### **Cách 3: Gọi API Trực Tiếp**
 ```bash
-curl -X GET "https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=YOUR_APP_ID&client_secret=YOUR_APP_SECRET&fb_exchange_token=SHORT_LIVED_TOKEN"
+curl -X GET "https://graph.facebook.com/v24.0/oauth/access_token?grant_type=fb_exchange_token&client_id=YOUR_APP_ID&client_secret=YOUR_APP_SECRET&fb_exchange_token=SHORT_LIVED_TOKEN"
 ```
 
 ---
@@ -89,7 +89,7 @@ curl -X GET "https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_e
 
 #### **Cách 3: Gọi API**
 ```bash
-curl -X GET "https://graph.facebook.com/v21.0/me/accounts?fields=name,access_token&access_token=YOUR_60_DAY_TOKEN"
+curl -X GET "https://graph.facebook.com/v24.0/me/accounts?fields=name,access_token&access_token=YOUR_60_DAY_TOKEN"
 ```
 
 Response:
