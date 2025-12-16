@@ -72,23 +72,33 @@ async function isCommentProcessed(commentId: string): Promise<boolean> {
 
 /**
  * Check if user is spamming (sent multiple messages in short time)
+ * Returns false on error to allow processing (fail-open)
  */
 async function isUserSpamming(userId: string, timeWindowSeconds: number = 30): Promise<boolean> {
   try {
     const userChatsRef = collection(db, "chats", userId, "messages");
     const recentTime = new Date(Date.now() - timeWindowSeconds * 1000);
 
-    const q = query(
-      userChatsRef,
-      orderBy("createdAt", "desc"),
-      limit(5)
-    );
-    const snapshot = await getDocs(q);
+    // Try with orderBy first
+    let snapshot;
+    try {
+      const q = query(
+        userChatsRef,
+        orderBy("createdAt", "desc"),
+        limit(10)
+      );
+      snapshot = await getDocs(q);
+    } catch (indexError) {
+      // If orderBy fails (no index), get all recent docs without ordering
+      console.log(`⚠️ No Firestore index for createdAt, using simple query`);
+      const q = query(userChatsRef, limit(10));
+      snapshot = await getDocs(q);
+    }
 
     let recentCount = 0;
     snapshot.forEach((doc) => {
       const data = doc.data();
-      const createdAt = data.createdAt?.toDate();
+      const createdAt = data.createdAt?.toDate?.();
       if (createdAt && createdAt > recentTime) {
         recentCount++;
       }
@@ -102,8 +112,8 @@ async function isUserSpamming(userId: string, timeWindowSeconds: number = 30): P
 
     return false;
   } catch (error) {
-    console.error('Error checking spam:', error);
-    return false;
+    console.error('❌ Error checking spam (allowing message):', error);
+    return false; // Fail-open: allow processing if spam check fails
   }
 }
 
@@ -459,29 +469,29 @@ export async function POST(request: NextRequest) {
               const isSpam = await isUserSpamming(senderId, 30);
               if (isSpam) {
                 console.log(`⏭️ Skip message from ${senderId} (user spamming - sending messages too fast)`);
-                return;
+                // Don't return, just skip processing but continue webhook
+              } else {
+                // Generate system prompt từ KOL personality
+                const systemPrompt = generateSystemPrompt(kol);
+                const history = await getChatHistory(senderId);
+
+                // Delay giả lập người thật
+                const delay = getHumanLikeDelay(kol);
+                console.log(`⏱️ Simulating human delay: ${delay}s`);
+                await new Promise(resolve => setTimeout(resolve, delay * 1000));
+
+                // AI reply với personality
+                let aiReply = await askGeminiWithPersonality(userMessage, history, systemPrompt);
+
+                // Thêm emoji theo style
+                aiReply = addEmojis(aiReply, kol.voice_characteristics.emoji_usage);
+
+                console.log(`📤 Sending reply to ${senderId}: ${aiReply.substring(0, 50)}...`);
+                await sendReplyToMessenger(senderId, aiReply);
+                await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
+                await updateKOLStats(kol.id, 'total_messages_replied');
+                console.log(`✅ Message processed successfully`);
               }
-
-              // Generate system prompt từ KOL personality
-              const systemPrompt = generateSystemPrompt(kol);
-              const history = await getChatHistory(senderId);
-
-              // Delay giả lập người thật
-              const delay = getHumanLikeDelay(kol);
-              console.log(`⏱️ Simulating human delay: ${delay}s`);
-              await new Promise(resolve => setTimeout(resolve, delay * 1000));
-
-              // AI reply với personality
-              let aiReply = await askGeminiWithPersonality(userMessage, history, systemPrompt);
-
-              // Thêm emoji theo style
-              aiReply = addEmojis(aiReply, kol.voice_characteristics.emoji_usage);
-
-              console.log(`📤 Sending reply to ${senderId}: ${aiReply.substring(0, 50)}...`);
-              await sendReplyToMessenger(senderId, aiReply);
-              await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
-              await updateKOLStats(kol.id, 'total_messages_replied');
-              console.log(`✅ Message processed successfully`);
             } else {
               console.log("⚠️ No active KOL found for this page or auto-reply disabled");
             }
