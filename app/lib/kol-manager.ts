@@ -75,21 +75,39 @@ export async function getAllKOLProfiles(userId?: string): Promise<KOLProfile[]> 
 
 export async function getKOLByPageId(pageId: string): Promise<KOLProfile | null> {
   try {
+    console.log(`🔍 Looking for KOL with pageId: ${pageId} in connected_pages array`);
+
     const q = query(
       collection(db, KOL_COLLECTION),
       where('connected_pages', 'array-contains', pageId),
       where('status', '==', 'active')
     );
-    
+
     const querySnapshot = await getDocs(q);
-    
+
     if (querySnapshot.empty) {
+      console.log(`⚠️ No active KOL found with pageId ${pageId} in connected_pages`);
+
+      // Try to find any KOL with this page (debug info)
+      const allKolsQuery = query(collection(db, KOL_COLLECTION));
+      const allKols = await getDocs(allKolsQuery);
+      console.log(`📊 Total KOL profiles in database: ${allKols.size}`);
+
+      allKols.forEach((doc) => {
+        const data = doc.data();
+        console.log(`  - KOL "${data.name}" (status: ${data.status})`);
+        console.log(`    connected_pages: [${data.connected_pages?.join(', ') || 'none'}]`);
+        console.log(`    facebook_pages: ${data.facebook_pages?.length || 0} pages`);
+      });
+
       return null;
     }
-    
-    return querySnapshot.docs[0].data() as KOLProfile;
+
+    const kolData = querySnapshot.docs[0].data() as KOLProfile;
+    console.log(`✅ Found KOL: "${kolData.name}" (id: ${kolData.id})`);
+    return kolData;
   } catch (error) {
-    console.error('Error getting KOL by page ID:', error);
+    console.error('❌ Error getting KOL by page ID:', error);
     throw error;
   }
 }
@@ -177,30 +195,51 @@ export function generateSystemPrompt(kol: KOLProfile): string {
 // Kiểm tra xem có nên trả lời không (dựa vào rules)
 export function shouldReply(kol: KOLProfile): boolean {
   const { engagement_rules } = kol;
-  
+
+  console.log(`🎲 Checking if KOL "${kol.name}" should reply...`);
+
   // Check working hours
   if (engagement_rules.working_hours.enabled) {
     const now = new Date();
-    // Chuyển đổi timezone nếu cần thiết (ở đây mặc định lấy giờ server/UTC hoặc cần xử lý thêm thư viện date-fns-tz nếu kỹ)
-    // Code đơn giản lấy giờ hiện tại của môi trường chạy (Vercel server)
-    const currentHour = now.getHours(); 
-    const currentMinute = now.getMinutes();
+    // Convert to Vietnam timezone (UTC+7)
+    const vietnamTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    const currentHour = vietnamTime.getHours();
+    const currentMinute = vietnamTime.getMinutes();
     const currentTime = currentHour * 60 + currentMinute;
-    
+
     const [startHour, startMin] = engagement_rules.working_hours.start.split(':').map(Number);
     const [endHour, endMin] = engagement_rules.working_hours.end.split(':').map(Number);
-    
+
     const startTime = startHour * 60 + startMin;
     const endTime = endHour * 60 + endMin;
-    
+
+    console.log(`  ⏰ Working hours check:`);
+    console.log(`    Current time (Vietnam): ${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`);
+    console.log(`    Working hours: ${engagement_rules.working_hours.start} - ${engagement_rules.working_hours.end}`);
+    console.log(`    Timezone: ${engagement_rules.working_hours.timezone}`);
+
     // Nếu giờ hiện tại nằm ngoài khung giờ làm việc
     if (currentTime < startTime || currentTime > endTime) {
+      console.log(`  ❌ Outside working hours - skipping reply`);
       return false;
     }
+    console.log(`  ✅ Within working hours`);
+  } else {
+    console.log(`  ℹ️ Working hours check disabled`);
   }
-  
+
   // Check probability
-  return Math.random() < engagement_rules.response_probability;
+  const random = Math.random();
+  const threshold = engagement_rules.response_probability;
+  console.log(`  🎲 Probability check: ${(random * 100).toFixed(1)}% < ${(threshold * 100).toFixed(0)}% threshold?`);
+
+  if (random < threshold) {
+    console.log(`  ✅ Probability passed - will reply`);
+    return true;
+  } else {
+    console.log(`  ❌ Probability failed - skipping reply`);
+    return false;
+  }
 }
 
 // Tính delay ngẫu nhiên để giả lập người thật
