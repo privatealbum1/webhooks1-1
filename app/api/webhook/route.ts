@@ -200,8 +200,8 @@ async function handleCommentWithKOL(
       aiReply = `${aiReply} ${randomCatchphrase}`;
     }
 
-    // 7. Send reply
-    await replyToComment(commentId, aiReply);
+    // 7. Send reply and get bot's new comment ID
+    const botReplyId = await replyToComment(commentId, aiReply);
 
     // 8. Mark user comment as processed (from user)
     await markCommentAsProcessed(commentId, {
@@ -211,9 +211,16 @@ async function handleCommentWithKOL(
       message: userMessage
     });
 
-    // 9. Save bot reply to tracking (important for reply chain)
-    // The bot's reply will have a new comment_id from Facebook
-    // We'll track it when webhook sends it back
+    // 9. Track bot's reply IMMEDIATELY to prevent duplicate processing
+    if (botReplyId) {
+      await markCommentAsProcessed(botReplyId, {
+        parent_id: commentId, // Bot reply's parent is user's comment
+        from_bot: true,
+        user_id: pageId, // Bot reply is from the page
+        message: aiReply
+      });
+      console.log(`📝 Tracked bot reply ${botReplyId} to prevent duplication`);
+    }
 
     // 10. Save interaction & update stats
     await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
@@ -327,19 +334,27 @@ async function sendReplyToMessenger(recipientId: string, text: string) {
   } catch (e) { console.error("Error sending message:", e); }
 }
 
-async function replyToComment(commentId: string, text: string) {
-  if (!PAGE_ACCESS_TOKEN) return;
+async function replyToComment(commentId: string, text: string): Promise<string | null> {
+  if (!PAGE_ACCESS_TOKEN) return null;
   const url = `https://graph.facebook.com/v24.0/${commentId}/comments?access_token=${PAGE_ACCESS_TOKEN}`;
   try {
-    const res = await fetch(url, { 
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ message: text }) 
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text })
     });
     const data = await res.json();
-    if (data.error) console.error("🔥 Lỗi Reply Comment:", data.error.message);
-    else console.log("✅ Đã trả lời comment:", commentId);
-  } catch (error) { console.error("🔥 Lỗi mạng Comment:", error); }
+    if (data.error) {
+      console.error("🔥 Lỗi Reply Comment:", data.error.message);
+      return null;
+    } else {
+      console.log("✅ Đã trả lời comment:", commentId, "New comment ID:", data.id);
+      return data.id; // Return bot's new comment ID
+    }
+  } catch (error) {
+    console.error("🔥 Lỗi mạng Comment:", error);
+    return null;
+  }
 }
 
 // --- MAIN HANDLERS ---
@@ -410,19 +425,17 @@ export async function POST(request: NextRequest) {
               const senderId = change.value.from.id;
               const parentId = change.value.parent_id || null; // Facebook provides parent_id for replies
 
-              // 🛡️ KHÓA 1: Bỏ qua comment của chính Page
-              if (senderId === MY_PAGE_ID) {
-                console.log("🚫 Bỏ qua comment của chính Page.");
+              // 🛡️ KHÓA 1: Bỏ qua comment của chính Page (so sánh với pageId động)
+              if (senderId === pageId) {
+                console.log(`🚫 Bỏ qua comment của chính Page ${pageId} (bot's own comment).`);
 
                 // Nhưng vẫn track bot's own reply để biết reply chain
-                if (parentId) {
-                  await markCommentAsProcessed(commentId, {
-                    parent_id: parentId,
-                    from_bot: true,
-                    user_id: MY_PAGE_ID,
-                    message: userMessage
-                  });
-                }
+                await markCommentAsProcessed(commentId, {
+                  parent_id: parentId || undefined,
+                  from_bot: true,
+                  user_id: pageId,
+                  message: userMessage
+                });
                 continue;
               }
 
