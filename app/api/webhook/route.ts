@@ -57,8 +57,53 @@ async function isCommentProcessed(commentId: string): Promise<boolean> {
   try {
     const docRef = doc(db, "processed_comments", commentId);
     const docSnap = await getDoc(docRef);
-    return docSnap.exists();
-  } catch (error) { return false; }
+    const exists = docSnap.exists();
+    if (exists) {
+      const data = docSnap.data();
+      console.log(`  ℹ️ Comment ${commentId} already processed: from_bot=${data?.from_bot}, user=${data?.user_id}`);
+    }
+    return exists;
+  } catch (error) {
+    console.error(`  ❌ Error checking if comment processed:`, error);
+    return false;
+  }
+}
+
+/**
+ * Check if user is spamming (sent multiple messages in short time)
+ */
+async function isUserSpamming(userId: string, timeWindowSeconds: number = 30): Promise<boolean> {
+  try {
+    const userChatsRef = collection(db, "chats", userId, "messages");
+    const recentTime = new Date(Date.now() - timeWindowSeconds * 1000);
+
+    const q = query(
+      userChatsRef,
+      orderBy("createdAt", "desc"),
+      limit(5)
+    );
+    const snapshot = await getDocs(q);
+
+    let recentCount = 0;
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      const createdAt = data.createdAt?.toDate();
+      if (createdAt && createdAt > recentTime) {
+        recentCount++;
+      }
+    });
+
+    // If user sent 3+ messages in last 30 seconds, consider it spam
+    if (recentCount >= 3) {
+      console.log(`⚠️ User ${userId} is spamming: ${recentCount} messages in ${timeWindowSeconds}s`);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking spam:', error);
+    return false;
+  }
 }
 
 async function markCommentAsProcessed(
@@ -152,11 +197,25 @@ async function handleCommentWithKOL(
     // 1. Kiểm tra xem có nên reply không
     const shouldReply = await shouldReplyToComment(commentId, parentId, senderId);
     if (!shouldReply) {
-      console.log(`⏭️ Skip comment ${commentId}`);
+      console.log(`⏭️ Skip comment ${commentId} (should not reply)`);
       return;
     }
 
-    // 2. Tìm KOL profile từ pageId
+    // 2. Check spam - if user is commenting too fast, skip
+    const isSpam = await isUserSpamming(senderId, 30);
+    if (isSpam) {
+      console.log(`⏭️ Skip comment ${commentId} (user spamming)`);
+      // Still mark as processed to prevent retry
+      await markCommentAsProcessed(commentId, {
+        parent_id: parentId || undefined,
+        from_bot: false,
+        user_id: senderId,
+        message: userMessage
+      });
+      return;
+    }
+
+    // 3. Tìm KOL profile từ pageId
     const kol = await getKOLForResponse(pageId);
 
     if (!kol) {
@@ -387,29 +446,46 @@ export async function POST(request: NextRequest) {
             const senderId = webhook_event.sender.id;
             const userMessage = webhook_event.message.text;
 
+            console.log(`\n💬 New message webhook received:`);
+            console.log(`  👤 From: ${senderId}`);
+            console.log(`  📄 Message: ${userMessage}`);
+            console.log(`  📍 Page ID: ${pageId}`);
+
             if (kol && kol.engagement_rules.auto_reply_messages) {
-              console.log(`💬 [KOL: ${kol.name}] Processing message from ${senderId}`);
-              
+              console.log(`✅ [KOL: ${kol.name}] Auto-reply enabled`);
+
+              // Check spam - if user is messaging too fast, skip
+              const isSpam = await isUserSpamming(senderId, 30);
+              if (isSpam) {
+                console.log(`⏭️ Skip message from ${senderId} (user spamming - sending messages too fast)`);
+                return;
+              }
+
               // Generate system prompt từ KOL personality
               const systemPrompt = generateSystemPrompt(kol);
               const history = await getChatHistory(senderId);
-              
+
               // Delay giả lập người thật
               const delay = getHumanLikeDelay(kol);
+              console.log(`⏱️ Simulating human delay: ${delay}s`);
               await new Promise(resolve => setTimeout(resolve, delay * 1000));
-              
+
               // AI reply với personality
               let aiReply = await askGeminiWithPersonality(userMessage, history, systemPrompt);
-              
+
               // Thêm emoji theo style
               aiReply = addEmojis(aiReply, kol.voice_characteristics.emoji_usage);
-              
+
+              console.log(`📤 Sending reply to ${senderId}: ${aiReply.substring(0, 50)}...`);
               await sendReplyToMessenger(senderId, aiReply);
               await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
               await updateKOLStats(kol.id, 'total_messages_replied');
+              console.log(`✅ Message processed successfully`);
             } else {
               console.log("⚠️ No active KOL found for this page or auto-reply disabled");
             }
+          } else if (webhook_event?.message?.is_echo) {
+            console.log(`🚫 SKIPPED: Echo message (bot's own message) - ignoring`);
           }
         }
 
@@ -425,9 +501,16 @@ export async function POST(request: NextRequest) {
               const senderId = change.value.from.id;
               const parentId = change.value.parent_id || null; // Facebook provides parent_id for replies
 
+              console.log(`\n🔔 New comment webhook received:`);
+              console.log(`  📝 Comment ID: ${commentId}`);
+              console.log(`  👤 From: ${senderId}`);
+              console.log(`  📄 Message: ${userMessage}`);
+              console.log(`  📍 Page ID: ${pageId}`);
+              console.log(`  🔗 Parent ID: ${parentId || 'None (root comment)'}`);
+
               // 🛡️ KHÓA 1: Bỏ qua comment của chính Page (so sánh với pageId động)
-              if (senderId === pageId) {
-                console.log(`🚫 Bỏ qua comment của chính Page ${pageId} (bot's own comment).`);
+              if (senderId === pageId || senderId.toString() === pageId.toString()) {
+                console.log(`🚫 SKIPPED: Comment from page itself (${pageId}). Bot's own comment - ignoring.`);
 
                 // Nhưng vẫn track bot's own reply để biết reply chain
                 await markCommentAsProcessed(commentId, {
@@ -438,6 +521,8 @@ export async function POST(request: NextRequest) {
                 });
                 continue;
               }
+
+              console.log(`✅ Comment is from user (not bot) - proceeding to handleCommentWithKOL...`);
 
               // 🎯 TÍNH NĂNG 3: XỬ LÝ COMMENT VỚI KOL PERSONALITY
               // Sử dụng handleCommentWithKOL function nâng cao với parent tracking
