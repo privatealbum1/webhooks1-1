@@ -136,60 +136,66 @@ async function shouldReplyToComment(commentId: string, parentId: string | null, 
   } catch (error) { return false; }
 }
 
-// --- GEMINI AI WITH KOL PERSONALITY (Robust Version) ---
+// --- GEMINI AI WITH KOL PERSONALITY (Fixed & Robust Version) ---
 async function askGeminiWithPersonality(message: string, history: ChatMessage[], systemPrompt: string): Promise<string> {
-  // 1. Dọn dẹp history (xóa các lượt bot trả lời liên tiếp nếu có để tránh lỗi API)
-  while (history.length > 0 && history[0].role === "model") { history.shift(); }
-
-  // 2. DANH SÁCH MODEL BẤT TỬ:
-  // - Ưu tiên 1: Flash 1.5 (Nhanh, Chuẩn)
-  // - Ưu tiên 2: Flash 1.5 Latest (Tên định danh khác phòng khi Google đổi)
-  // - Ưu tiên 3: Gemini Pro (Bản cũ 1.0 - Chậm hơn nhưng siêu ổn định)
-  const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
-  
-  // Biến lưu lỗi để debug
-  let lastError = null;
-
-  // 3. Vòng lặp thử từng model
-  for (const modelName of modelsToTry) {
-    try {
-      // console.log(`🤖 Webhook trying model: ${modelName}...`); // Bỏ comment nếu muốn xem log
-      
-      const model = genAI.getGenerativeModel({ 
-        model: modelName, 
-        systemInstruction: systemPrompt 
-      });
-      
-      const chat = model.startChat({ 
-        history: history, 
-        generationConfig: { 
-          maxOutputTokens: 500,
-          temperature: 0.9 
-        } 
-      });
-      
-      const result = await chat.sendMessage(message);
-      const response = (await result.response).text();
-      
-      // Nếu thành công -> Trả về kết quả và thoát hàm ngay lập tức
-      return response;
-
-    } catch (error: any) {
-      console.warn(`⚠️ Webhook Model ${modelName} failed:`, error.message || error);
-      lastError = error;
-      
-      // LƯU Ý ĐẶC BIỆT CHO GEMINI PRO (Model cũ):
-      // Nếu fallback về gemini-pro, đôi khi nó lỗi vì không hiểu "systemInstruction".
-      // Logic dưới đây để xử lý riêng trường hợp đó ở vòng lặp sau (nếu cần thiết),
-      // nhưng thường thư viện mới đã tự handle. Chỉ cần continue là đủ.
-      continue;
+  try {
+    // 1. Validate inputs
+    if (!message || !message.trim()) {
+      return "Xin lỗi, tôi không hiểu câu hỏi. Bạn vui lòng nhắn lại rõ ràng hơn nhé!";
     }
-  }
 
-  // 4. Nếu thử cả 3 model đều chết
-  console.error("🔥 ALL AI MODELS FAILED in Webhook. Last error:", lastError);
-  return "Hiện tại server AI đang quá tải, bạn vui lòng nhắn lại sau ít phút nhé! (Error: AI Busy)";
+    // 2. Clean history safely - only remove leading bot messages
+    let cleanHistory = [...history];
+    while (cleanHistory.length > 0 && cleanHistory[0].role === "model") {
+      cleanHistory.shift();
+    }
+
+    // 3. DANH SÁCH MODEL (tried in order):
+    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+    let lastError: any = null;
+
+    // 4. Try each model
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`🤖 Webhook trying model: ${modelName}`);
+        
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        const chat = model.startChat({
+          history: cleanHistory,
+          generationConfig: {
+            maxOutputTokens: 500,
+            temperature: 0.9
+          }
+        });
+
+        // Create combined context message
+        const contextMessage = `${systemPrompt}\n\n[User Message]: ${message}`;
+        
+        const result = await chat.sendMessage(contextMessage);
+        const response = (await result.response).text();
+
+        if (response && response.trim()) {
+          console.log(`✅ Model ${modelName} succeeded`);
+          return response;
+        }
+      } catch (error: any) {
+        console.warn(`⚠️ Model ${modelName} failed:`, error.message || error);
+        lastError = error;
+        // Continue to next model
+      }
+    }
+
+    // 5. All models failed - return error message
+    console.error("🔥 ALL AI MODELS FAILED. Last error:", lastError);
+    return "Hiện tại server AI đang quá tải, bạn vui lòng nhắn lại sau ít phút nhé! (Error: AI Busy)";
+
+  } catch (error: any) {
+    console.error("🔥 CRITICAL ERROR in askGeminiWithPersonality:", error);
+    return "Có lỗi xảy ra, bạn vui lòng nhắn lại sau nhé!";
+  }
 }
+
 
 // --- SEND REPLY (ĐÃ CẬP NHẬT: NHẬN TOKEN TỪNG PAGE) ---
 async function sendReplyToMessenger(recipientId: string, text: string, accessToken: string) {
