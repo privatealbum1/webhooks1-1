@@ -61,13 +61,74 @@ async function isCommentProcessed(commentId: string): Promise<boolean> {
   } catch (error) { return false; }
 }
 
-async function markCommentAsProcessed(commentId: string) {
+async function markCommentAsProcessed(
+  commentId: string,
+  metadata?: {
+    parent_id?: string;
+    from_bot: boolean;
+    user_id: string;
+    message: string;
+  }
+) {
   try {
     await setDoc(doc(db, "processed_comments", commentId), {
-      processedAt: serverTimestamp()
+      processedAt: serverTimestamp(),
+      ...metadata
     });
   } catch (error) {
     console.error("🔥 Lỗi đánh dấu comment:", error);
+  }
+}
+
+/**
+ * Kiểm tra xem có nên reply comment này không
+ * Logic:
+ * 1. Nếu là comment gốc (no parent) → Reply 1 lần
+ * 2. Nếu là reply (có parent):
+ *    - Check parent có phải bot reply không
+ *    - Nếu user đang reply bot → Reply
+ *    - Nếu không → Skip
+ */
+async function shouldReplyToComment(
+  commentId: string,
+  parentId: string | null,
+  senderId: string
+): Promise<boolean> {
+  // Đã được xử lý rồi thì skip
+  if (await isCommentProcessed(commentId)) {
+    console.log(`🚫 Comment ${commentId} đã được xử lý rồi`);
+    return false;
+  }
+
+  // Nếu là comment gốc (no parent) → Luôn reply
+  if (!parentId) {
+    console.log(`✅ Comment gốc → Sẽ reply`);
+    return true;
+  }
+
+  // Nếu có parent, check xem parent có phải bot reply không
+  try {
+    const parentDoc = await getDoc(doc(db, "processed_comments", parentId));
+
+    if (!parentDoc.exists()) {
+      console.log(`⚠️ Parent comment ${parentId} không tồn tại → Skip reply`);
+      return false;
+    }
+
+    const parentData = parentDoc.data();
+
+    // Nếu parent là bot reply → User đang reply lại bot → Reply
+    if (parentData.from_bot === true) {
+      console.log(`✅ User reply lại bot → Sẽ reply`);
+      return true;
+    }
+
+    // Parent không phải bot → User reply user khác → Skip
+    console.log(`🚫 User reply user khác → Skip`);
+    return false;
+  } catch (error) {
+    console.error('Error checking parent comment:', error);
+    return false;
   }
 }
 
@@ -84,10 +145,18 @@ async function handleCommentWithKOL(
   commentId: string,
   userMessage: string,
   pageId: string,
-  senderId: string
+  senderId: string,
+  parentId: string | null = null
 ): Promise<void> {
   try {
-    // 1. Tìm KOL profile từ pageId
+    // 1. Kiểm tra xem có nên reply không
+    const shouldReply = await shouldReplyToComment(commentId, parentId, senderId);
+    if (!shouldReply) {
+      console.log(`⏭️ Skip comment ${commentId}`);
+      return;
+    }
+
+    // 2. Tìm KOL profile từ pageId
     const kol = await getKOLForResponse(pageId);
 
     if (!kol) {
@@ -102,25 +171,25 @@ async function handleCommentWithKOL(
 
     console.log(`💬 [KOL: ${kol.name}] Processing comment from user ${senderId}`);
 
-    // 2. Load personality & history
+    // 3. Load personality & history
     const systemPrompt = generateSystemPrompt(kol);
 
     // Load recent conversation history with this user (if exists)
     const conversationHistory = await getChatHistory(senderId);
 
-    // 3. Apply human-like delay
+    // 4. Apply human-like delay
     const delay = getHumanLikeDelay(kol);
     console.log(`⏱️ Simulating human delay: ${delay}s`);
     await simulateHumanDelay(delay);
 
-    // 4. Generate reply theo style KOL với context
+    // 5. Generate reply theo style KOL với context
     let aiReply = await askGeminiWithPersonality(
       userMessage,
       conversationHistory.slice(-5), // Last 5 messages for context
       systemPrompt
     );
 
-    // 5. Post-process reply
+    // 6. Post-process reply
     aiReply = addEmojis(aiReply, kol.voice_characteristics.emoji_usage);
 
     // Apply catchphrases randomly (20% chance)
@@ -131,12 +200,23 @@ async function handleCommentWithKOL(
       aiReply = `${aiReply} ${randomCatchphrase}`;
     }
 
-    // 6. Send reply
+    // 7. Send reply
     await replyToComment(commentId, aiReply);
 
-    // 7. Save interaction & update stats
+    // 8. Mark user comment as processed (from user)
+    await markCommentAsProcessed(commentId, {
+      parent_id: parentId || undefined,
+      from_bot: false,
+      user_id: senderId,
+      message: userMessage
+    });
+
+    // 9. Save bot reply to tracking (important for reply chain)
+    // The bot's reply will have a new comment_id from Facebook
+    // We'll track it when webhook sends it back
+
+    // 10. Save interaction & update stats
     await saveChatToFirebase(senderId, userMessage, aiReply, kol.id);
-    await markCommentAsProcessed(commentId);
     await updateKOLStats(kol.id, 'total_comments_replied');
 
     console.log(`✅ [KOL: ${kol.name}] Successfully replied to comment ${commentId}`);
@@ -299,23 +379,27 @@ export async function POST(request: NextRequest) {
               const commentId = change.value.comment_id;
               const userMessage = change.value.message;
               const senderId = change.value.from.id;
+              const parentId = change.value.parent_id || null; // Facebook provides parent_id for replies
 
               // 🛡️ KHÓA 1: Bỏ qua comment của chính Page
               if (senderId === MY_PAGE_ID) {
                 console.log("🚫 Bỏ qua comment của chính Page.");
-                continue;
-              }
 
-              // 🛡️ KHÓA 2: Kiểm tra đã xử lý chưa
-              const alreadyProcessed = await isCommentProcessed(commentId);
-              if (alreadyProcessed) {
-                console.log("🚫 Comment đã trả lời rồi:", commentId);
+                // Nhưng vẫn track bot's own reply để biết reply chain
+                if (parentId) {
+                  await markCommentAsProcessed(commentId, {
+                    parent_id: parentId,
+                    from_bot: true,
+                    user_id: MY_PAGE_ID,
+                    message: userMessage
+                  });
+                }
                 continue;
               }
 
               // 🎯 TÍNH NĂNG 3: XỬ LÝ COMMENT VỚI KOL PERSONALITY
-              // Sử dụng handleCommentWithKOL function nâng cao
-              await handleCommentWithKOL(commentId, userMessage, pageId, senderId);
+              // Sử dụng handleCommentWithKOL function nâng cao với parent tracking
+              await handleCommentWithKOL(commentId, userMessage, pageId, senderId, parentId);
             }
           }
         }

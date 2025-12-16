@@ -50,7 +50,15 @@ export interface KOLStats {
   total_messages_replied: number;
   avg_response_time_seconds: number;
   last_active: Timestamp | null;
-  engagement_rate: number;
+
+  // New engagement metrics
+  followers_count: number;
+  total_likes: number;
+  total_shares: number;
+  total_reactions: number;
+  engagement_rate: number; // (likes + comments + shares) / followers * 100
+  reach: number; // Total people reached
+  impressions: number; // Total times content was viewed
 }
 
 export interface KOLProfile {
@@ -116,7 +124,13 @@ export const DEFAULT_KOL_PROFILE: Omit<KOLProfile, 'id' | 'createdAt' | 'updated
     total_messages_replied: 0,
     avg_response_time_seconds: 0,
     last_active: null,
-    engagement_rate: 0
+    followers_count: 0,
+    total_likes: 0,
+    total_shares: 0,
+    total_reactions: 0,
+    engagement_rate: 0,
+    reach: 0,
+    impressions: 0
   },
   status: "draft",
   created_by: ""

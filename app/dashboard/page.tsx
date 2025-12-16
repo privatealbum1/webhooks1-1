@@ -10,7 +10,12 @@ export default function MainDashboard() {
     activeKOLs: 0,
     totalComments: 0,
     totalMessages: 0,
-    totalEngagement: 0
+    totalEngagement: 0,
+    totalFollowers: 0,
+    totalLikes: 0,
+    totalShares: 0,
+    totalReach: 0,
+    avgEngagementRate: 0
   });
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,13 +34,25 @@ export default function MainDashboard() {
         const kols = data.data;
         const totalComments = kols.reduce((sum, k) => sum + (k.stats?.total_comments_replied || 0), 0);
         const totalMessages = kols.reduce((sum, k) => sum + (k.stats?.total_messages_replied || 0), 0);
-        
+        const totalFollowers = kols.reduce((sum, k) => sum + (k.stats?.followers_count || 0), 0);
+        const totalLikes = kols.reduce((sum, k) => sum + (k.stats?.total_likes || 0), 0);
+        const totalShares = kols.reduce((sum, k) => sum + (k.stats?.total_shares || 0), 0);
+        const totalReach = kols.reduce((sum, k) => sum + (k.stats?.reach || 0), 0);
+        const avgEngagementRate = kols.length > 0
+          ? kols.reduce((sum, k) => sum + (k.stats?.engagement_rate || 0), 0) / kols.length
+          : 0;
+
         setStats({
           totalKOLs: kols.length,
           activeKOLs: kols.filter(k => k.status === 'active').length,
           totalComments,
           totalMessages,
-          totalEngagement: totalComments + totalMessages
+          totalEngagement: totalComments + totalMessages,
+          totalFollowers,
+          totalLikes,
+          totalShares,
+          totalReach,
+          avgEngagementRate
         });
 
         setRecentActivity([
@@ -91,36 +108,69 @@ export default function MainDashboard() {
           <div className="bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-all">
             <div className="flex items-center justify-between mb-4">
               <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                <MessageCircle className="text-blue-600" size={24} />
+                <Users className="text-blue-600" size={24} />
               </div>
               <Zap className="text-yellow-500" size={20} />
             </div>
-            <p className="text-gray-500 text-sm mb-1">Comments Replied</p>
-            <p className="text-4xl font-bold text-gray-800">{stats.totalComments}</p>
+            <p className="text-gray-500 text-sm mb-1">Total Followers</p>
+            <p className="text-4xl font-bold text-gray-800">{stats.totalFollowers.toLocaleString()}</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-all">
             <div className="flex items-center justify-between mb-4">
               <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                <MessageCircle className="text-purple-600" size={24} />
+                <TrendingUp className="text-purple-600" size={24} />
               </div>
               <Zap className="text-yellow-500" size={20} />
             </div>
-            <p className="text-gray-500 text-sm mb-1">Messages Replied</p>
-            <p className="text-4xl font-bold text-gray-800">{stats.totalMessages}</p>
+            <p className="text-gray-500 text-sm mb-1">Avg Engagement</p>
+            <p className="text-4xl font-bold text-gray-800">{stats.avgEngagementRate.toFixed(1)}%</p>
           </div>
 
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-lg p-6 hover:shadow-xl transition-all text-white">
             <div className="flex items-center justify-between mb-4">
               <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                <TrendingUp size={24} />
+                <MessageCircle size={24} />
               </div>
               <span className="text-sm font-semibold bg-white/20 px-3 py-1 rounded-full">
                 Total
               </span>
             </div>
-            <p className="text-indigo-100 text-sm mb-1">Total Engagement</p>
-            <p className="text-4xl font-bold">{stats.totalEngagement}</p>
+            <p className="text-indigo-100 text-sm mb-1">Total Interactions</p>
+            <p className="text-4xl font-bold">{stats.totalEngagement.toLocaleString()}</p>
+          </div>
+        </div>
+
+        {/* Additional Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-gradient-to-br from-pink-50 to-rose-50 rounded-2xl p-6 border-2 border-pink-200">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl">❤️</span>
+              <div>
+                <p className="text-sm text-gray-600">Total Likes</p>
+                <p className="text-2xl font-bold text-pink-600">{stats.totalLikes.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-6 border-2 border-blue-200">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl">🔄</span>
+              <div>
+                <p className="text-sm text-gray-600">Total Shares</p>
+                <p className="text-2xl font-bold text-blue-600">{stats.totalShares.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border-2 border-green-200">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl">📊</span>
+              <div>
+                <p className="text-sm text-gray-600">Total Reach</p>
+                <p className="text-2xl font-bold text-green-600">{stats.totalReach.toLocaleString()}</p>
+              </div>
+            </div>
           </div>
         </div>
 
