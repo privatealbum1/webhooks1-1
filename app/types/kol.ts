@@ -45,6 +45,12 @@ export interface EngagementRules {
   response_probability: number; // 0.8 = 80% trả lời, 20% skip
 }
 
+export interface FacebookPageConnection {
+  page_id: string;
+  page_name: string;
+  page_access_token: string;
+}
+
 export interface KOLStats {
   total_comments_replied: number;
   total_messages_replied: number;
@@ -70,7 +76,8 @@ export interface KOLProfile {
   voice_characteristics: VoiceCharacteristics;
   demographic: Demographic;
   engagement_rules: EngagementRules;
-  connected_pages: string[]; // List of FB Page IDs
+  connected_pages: string[]; // List of FB Page IDs (legacy)
+  facebook_pages?: FacebookPageConnection[]; // Full page info with tokens
   stats: KOLStats;
   status: ContentStatus;
   created_by: string; // User ID
