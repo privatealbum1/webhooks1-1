@@ -12,6 +12,10 @@ export default function ConnectPageUpgraded() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedKOLs, setSelectedKOLs] = useState({});
+  const [showGuide, setShowGuide] = useState(true);
+  const [userToken, setUserToken] = useState('');
+  const [extendedToken, setExtendedToken] = useState('');
+  const [extending, setExtending] = useState(false);
 
   useEffect(() => {
     fetchKOLs();
@@ -107,6 +111,66 @@ export default function ConnectPageUpgraded() {
     }
   };
 
+  const handleExtendToken = async () => {
+    if (!userToken.trim()) {
+      alert('Vui lòng nhập User Access Token');
+      return;
+    }
+
+    setExtending(true);
+    try {
+      const res = await fetch('/api/facebook/extend-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ short_token: userToken }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.access_token) {
+        setExtendedToken(data.access_token);
+        const days = Math.floor(data.expires_in / 86400);
+        setStatus(`✅ Đã extend token thành ${days} ngày! Copy token bên dưới.`);
+      } else {
+        setStatus('❌ Lỗi: ' + (data.error || 'Không thể extend token'));
+      }
+    } catch (error) {
+      setStatus('❌ Lỗi: ' + String(error));
+    } finally {
+      setExtending(false);
+    }
+  };
+
+  const handleManualConnect = async () => {
+    if (!extendedToken.trim()) {
+      alert('Vui lòng extend token trước!');
+      return;
+    }
+
+    setLoading(true);
+    setStatus("Đang lấy danh sách Pages...");
+
+    try {
+      const res = await fetch('/api/connect-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAccessToken: extendedToken }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setPages(data.pages);
+        setStatus(`✅ Thành công! Đã kết nối ${data.pages.length} Fanpage với token vĩnh viễn.`);
+      } else {
+        setStatus("❌ Lỗi: " + data.error);
+      }
+    } catch (error) {
+      setStatus("❌ Lỗi kết nối server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-8">
       <div className="max-w-5xl mx-auto">
@@ -115,9 +179,163 @@ export default function ConnectPageUpgraded() {
             Kết Nối Facebook Page
           </h1>
           <p className="text-gray-600 text-lg">
-            Kết nối Fanpage và gán KOL AI để bắt đầu tự động hóa
+            Kết nối Fanpage với Token Vĩnh Viễn để tự động hóa
           </p>
         </div>
+
+        {/* HƯỚNG DẪN LẤY TOKEN VĨNH VIỄN */}
+        {showGuide && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-2xl p-8 mb-8">
+            <div className="flex justify-between items-start mb-6">
+              <h2 className="text-2xl font-bold text-blue-900 flex items-center gap-2">
+                🔑 Hướng Dẫn Lấy Token Vĩnh Viễn
+              </h2>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="text-blue-600 hover:text-blue-800"
+              >
+                ✕ Đóng
+              </button>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 mb-6">
+              <p className="text-red-600 font-semibold mb-4">
+                ⚠️ Token từ Login Button chỉ tồn tại 1 giờ! Hãy làm theo các bước sau để có token vĩnh viễn:
+              </p>
+
+              {/* BƯỚC 1 */}
+              <div className="mb-6 pb-6 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <span className="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm">1</span>
+                  Generate User Token với đủ quyền
+                </h3>
+                <div className="ml-10 space-y-3">
+                  <p className="text-gray-700">
+                    Vào <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">Graph API Explorer</a>
+                  </p>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600 mb-2">✅ Cần có đủ <strong>7 quyền</strong> sau:</p>
+                    <ul className="text-sm text-gray-700 space-y-1 ml-4">
+                      <li>✓ pages_show_list</li>
+                      <li>✓ pages_read_engagement</li>
+                      <li>✓ pages_manage_posts</li>
+                      <li>✓ pages_manage_metadata</li>
+                      <li>✓ pages_messaging</li>
+                      <li>✓ read_insights</li>
+                      <li>✓ pages_read_user_content</li>
+                    </ul>
+                  </div>
+                  <p className="text-gray-700">
+                    Nhấn <strong>"Generate Access Token"</strong> → Copy token (token này chỉ sống 1 giờ)
+                  </p>
+                  <input
+                    type="text"
+                    value={userToken}
+                    onChange={(e) => setUserToken(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
+                    placeholder="Paste User Access Token (1 giờ) vào đây..."
+                  />
+                </div>
+              </div>
+
+              {/* BƯỚC 2 */}
+              <div className="mb-6 pb-6 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <span className="bg-green-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm">2</span>
+                  Extend Token thành 60 ngày
+                </h3>
+                <div className="ml-10 space-y-3">
+                  <p className="text-gray-700 mb-3">
+                    Dùng <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">Access Token Debugger</a> hoặc click nút bên dưới:
+                  </p>
+                  <button
+                    onClick={handleExtendToken}
+                    disabled={extending || !userToken}
+                    className={`px-6 py-3 rounded-xl font-semibold transition-colors ${
+                      extending || !userToken
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-green-600 text-white hover:bg-green-700'
+                    }`}
+                  >
+                    {extending ? '⏳ Đang extend...' : '🔄 Extend Token (60 ngày)'}
+                  </button>
+                  {extendedToken && (
+                    <div className="mt-4">
+                      <p className="text-sm font-semibold text-green-700 mb-2">✅ Token 60 ngày:</p>
+                      <textarea
+                        value={extendedToken}
+                        readOnly
+                        className="w-full px-4 py-3 border-2 border-green-500 rounded-lg font-mono text-sm bg-green-50"
+                        rows={3}
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(extendedToken);
+                          alert('✅ Đã copy!');
+                        }}
+                        className="mt-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                      >
+                        📋 Copy Token
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* BƯỚC 3 */}
+              <div className="mb-4">
+                <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <span className="bg-purple-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm">3</span>
+                  Lấy Token Page Vĩnh Viễn
+                </h3>
+                <div className="ml-10 space-y-3">
+                  <p className="text-gray-700">
+                    Quay lại <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">Graph API Explorer</a>, dán token 60 ngày vào
+                  </p>
+                  <p className="text-gray-700">
+                    Gọi endpoint: <code className="bg-gray-100 px-2 py-1 rounded">me/accounts?fields=name,access_token</code>
+                  </p>
+                  <p className="text-gray-700">
+                    → Lấy <strong>access_token</strong> của từng Page (đây là token vĩnh viễn!)
+                  </p>
+                  <p className="text-sm text-gray-600 italic">
+                    💡 Hoặc click nút bên dưới để hệ thống tự động lấy:
+                  </p>
+                  <button
+                    onClick={handleManualConnect}
+                    disabled={loading || !extendedToken}
+                    className={`px-6 py-3 rounded-xl font-semibold transition-colors ${
+                      loading || !extendedToken
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-purple-600 text-white hover:bg-purple-700'
+                    }`}
+                  >
+                    {loading ? '⏳ Đang kết nối...' : '🚀 Kết Nối Pages (Token Vĩnh Viễn)'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {status && (
+              <div className={`mt-4 p-4 rounded-lg ${
+                status.includes('✅') ? 'bg-green-100 text-green-800' :
+                status.includes('⚠️') ? 'bg-yellow-100 text-yellow-800' :
+                'bg-red-100 text-red-800'
+              }`}>
+                {status}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!showGuide && (
+          <button
+            onClick={() => setShowGuide(true)}
+            className="mb-6 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+          >
+            📖 Xem hướng dẫn lấy Token Vĩnh Viễn
+          </button>
+        )}
 
         {kols.length === 0 && (
           <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-6 mb-6 text-center">
