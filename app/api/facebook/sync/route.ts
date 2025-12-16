@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPageInsights, getPageInfo, syncPostComments } from '../../../lib/facebook-client';
 import { getKOLProfile, updateKOLStats } from '../../../lib/kol-manager';
 import { db } from '../../../lib/firebase';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +29,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!kolProfile.facebook_pages || kolProfile.facebook_pages.length === 0) {
+    // Get pages from either facebook_pages or connected_pages
+    let pagesToSync: Array<{ page_id: string; page_access_token: string }> = [];
+
+    if (kolProfile.facebook_pages && kolProfile.facebook_pages.length > 0) {
+      // Use facebook_pages if available
+      pagesToSync = kolProfile.facebook_pages.map(p => ({
+        page_id: p.page_id,
+        page_access_token: p.page_access_token
+      }));
+    } else if (kolProfile.connected_pages && kolProfile.connected_pages.length > 0) {
+      // Fallback: Get tokens from registered_pages collection
+      for (const pageId of kolProfile.connected_pages) {
+        try {
+          const pageDoc = await getDoc(doc(db, 'registered_pages', pageId));
+          if (pageDoc.exists()) {
+            const pageData = pageDoc.data();
+            pagesToSync.push({
+              page_id: pageId,
+              page_access_token: pageData.accessToken
+            });
+          }
+        } catch (error) {
+          console.error(`Error getting page ${pageId} from registered_pages:`, error);
+        }
+      }
+    }
+
+    if (pagesToSync.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No Facebook pages connected to this KOL' },
         { status: 400 }
@@ -43,10 +70,10 @@ export async function POST(request: NextRequest) {
       errors: [] as string[],
     };
 
-    // Determine which pages to sync
-    const pagesToSync = page_id
-      ? kolProfile.facebook_pages.filter((p) => p.page_id === page_id)
-      : kolProfile.facebook_pages;
+    // Filter by specific page_id if provided
+    const finalPagesToSync = page_id
+      ? pagesToSync.filter((p) => p.page_id === page_id)
+      : pagesToSync;
 
     // Aggregate stats across all pages
     let totalFollowers = 0;
@@ -55,7 +82,7 @@ export async function POST(request: NextRequest) {
     let totalReach = 0;
 
     // Sync each page
-    for (const page of pagesToSync) {
+    for (const page of finalPagesToSync) {
       try {
         const pageToken = page.page_access_token;
 

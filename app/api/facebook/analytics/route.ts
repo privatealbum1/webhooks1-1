@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPageInsights, getPostAnalytics, getPageInfo } from '../../../lib/facebook-client';
 import { getKOLProfile } from '../../../lib/kol-manager';
 import { db } from '../../../lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,11 +36,37 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Build pages list from facebook_pages or connected_pages
+      let pagesToAnalyze: Array<{ page_id: string; page_access_token: string }> = [];
+
+      if (kolProfile.facebook_pages && kolProfile.facebook_pages.length > 0) {
+        pagesToAnalyze = kolProfile.facebook_pages.map(p => ({
+          page_id: p.page_id,
+          page_access_token: p.page_access_token
+        }));
+      } else if (kolProfile.connected_pages && kolProfile.connected_pages.length > 0) {
+        // Fallback: Get tokens from registered_pages collection
+        for (const pid of kolProfile.connected_pages) {
+          try {
+            const pageDoc = await getDoc(doc(db, 'registered_pages', pid));
+            if (pageDoc.exists()) {
+              const pageData = pageDoc.data();
+              pagesToAnalyze.push({
+                page_id: pid,
+                page_access_token: pageData.accessToken
+              });
+            }
+          } catch (error) {
+            console.error(`Error getting page ${pid}:`, error);
+          }
+        }
+      }
+
       // Get analytics for all pages of this KOL
-      if (!pageId && kolProfile.facebook_pages && kolProfile.facebook_pages.length > 0) {
+      if (!pageId && pagesToAnalyze.length > 0) {
         const allPageAnalytics = [];
 
-        for (const page of kolProfile.facebook_pages) {
+        for (const page of pagesToAnalyze) {
           const pageToken = page.page_access_token;
 
           // Get page info
@@ -70,7 +96,7 @@ export async function GET(request: NextRequest) {
 
       // If specific pageId, find token for that page
       if (pageId) {
-        const page = kolProfile.facebook_pages?.find((p) => p.page_id === pageId);
+        const page = pagesToAnalyze.find((p) => p.page_id === pageId);
         if (!page) {
           return NextResponse.json(
             { success: false, error: 'Page not found in KOL profile' },
@@ -81,7 +107,8 @@ export async function GET(request: NextRequest) {
         targetPageId = pageId;
       }
     } else if (pageId) {
-      // pageId provided without kolId - need to find KOL that owns this page
+      // pageId provided without kolId - try to find token
+      // First check KOL profiles
       const kolProfilesRef = collection(db, 'kol_profiles');
       const q = query(kolProfilesRef);
       const snapshot = await getDocs(q);
@@ -93,6 +120,18 @@ export async function GET(request: NextRequest) {
         if (page) {
           foundToken = page.page_access_token;
           break;
+        }
+      }
+
+      // Fallback: Try registered_pages
+      if (!foundToken) {
+        try {
+          const pageDoc = await getDoc(doc(db, 'registered_pages', pageId));
+          if (pageDoc.exists()) {
+            foundToken = pageDoc.data().accessToken;
+          }
+        } catch (error) {
+          console.error('Error getting page from registered_pages:', error);
         }
       }
 
