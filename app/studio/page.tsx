@@ -24,9 +24,17 @@ export default function ContentStudio() {
     try {
       const response = await fetch('/api/kols');
       const data = await response.json();
-      setKols(data.kols || []);
+
+      if (data.success && data.data) {
+        setKols(data.data);
+        console.log('✅ Loaded KOLs:', data.data.length);
+      } else {
+        console.warn('⚠️ No KOLs found or API error');
+        setKols([]);
+      }
     } catch (error) {
-      console.error('Error fetching KOLs:', error);
+      console.error('❌ Error fetching KOLs:', error);
+      setKols([]);
     }
   };
 
@@ -126,6 +134,7 @@ export default function ContentStudio() {
               value={selectedKol}
               onChange={(e) => setSelectedKol(e.target.value)}
               className="w-full p-3 border border-gray-300 rounded-lg"
+              disabled={kols.length === 0}
             >
               <option value="">-- Chọn KOL --</option>
               {kols.map((kol) => (
@@ -134,6 +143,23 @@ export default function ContentStudio() {
                 </option>
               ))}
             </select>
+
+            {kols.length === 0 && (
+              <div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-yellow-800 text-sm font-medium mb-2">
+                  ⚠️ Chưa có KOL Profile nào
+                </p>
+                <p className="text-yellow-700 text-sm mb-3">
+                  Bạn cần tạo ít nhất một KOL Profile trước khi sử dụng Content Studio.
+                </p>
+                <button
+                  onClick={() => window.location.href = '/dashboard/kols/create'}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                >
+                  → Tạo KOL Profile
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Platform Selection */}
