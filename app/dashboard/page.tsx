@@ -193,11 +193,19 @@ export default function MainDashboard() {
               </button>
 
               <button
-                onClick={() => alert('Content Studio coming soon!')}
+                onClick={() => window.location.href = '/studio'}
                 className="w-full flex items-center justify-between p-4 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition-all"
               >
-                <span className="font-semibold">Content Studio</span>
-                <span className="text-xs bg-purple-200 px-2 py-1 rounded-full">Soon</span>
+                <span className="font-semibold">🎨 Content Studio</span>
+                <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">NEW</span>
+              </button>
+
+              <button
+                onClick={() => window.location.href = '/calendar'}
+                className="w-full flex items-center justify-between p-4 bg-pink-50 text-pink-700 rounded-xl hover:bg-pink-100 transition-all"
+              >
+                <span className="font-semibold">📅 Content Calendar</span>
+                <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">NEW</span>
               </button>
             </div>
 
